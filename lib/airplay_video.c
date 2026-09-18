@@ -723,6 +723,58 @@ static slice_t *master_playlist_slicer(const char *master_playlist, airplay_vide
     return slice;
 }
 
+/* TEST-ONLY: drop video variants taller than UXPLAY_TEST_MAX_HEIGHT.
+
+   This exists to answer a question raised in FDH2/UxPlay#572: once oversized
+   variants are unavailable, does a plain bandwidth cap still pick the codec
+   the receiver decodes in hardware?  It is not proposed for merging.
+   Unset or unparseable variable = upstream behaviour, nothing is dropped.  */
+static void test_drop_tall_variants(slice_t *slice, int n_slice) {
+    const char *env = getenv("UXPLAY_TEST_MAX_HEIGHT");
+    if (!env || !*env) {
+        return;
+    }
+    char *end = NULL;
+    long max_height = strtol(env, &end, 10);
+    if (end == env || *end || max_height <= 0) {
+        printf("UXPLAY_TEST_MAX_HEIGHT=\"%s\" is not a positive integer, ignored\n", env);
+        return;
+    }
+    printf("TEST: dropping HLS video variants taller than %ld\n", max_height);
+    for (int i = 0; i < n_slice; i++) {
+        if (slice[i].delete) {
+            continue;
+        }
+        if (strncmp(slice[i].first, "#EXT-X-STREAM-INF", strlen("#EXT-X-STREAM-INF"))) {
+            continue;
+        }
+        const char *res = strstr(slice[i].first, "RESOLUTION=");
+        if (!res || res >= slice[i].last) {
+            continue;
+        }
+        res += strlen("RESOLUTION=");
+        char *sep = NULL;
+        long width = strtol(res, &sep, 10);
+        if (sep == res || !sep || *sep != 'x') {
+            continue;
+        }
+        const char *hgt = sep + 1;
+        long height = strtol(hgt, &end, 10);
+        if (end == hgt || height <= 0) {
+            continue;
+        }
+        if (height <= max_height) {
+            continue;
+        }
+        printf("TEST: dropping variant %ldx%ld\n", width, height);
+        slice[i].delete = true;
+        /* an #EXT-X-STREAM-INF tag is always followed by its URI line */
+        if (i + 1 < n_slice) {
+            slice[i + 1].delete = true;
+        }
+    }
+}
+
 char * select_master_playlist_language(airplay_video_t *airplay_video, char *master_playlist) {
     assert(master_playlist);
     /* filter out unwanted language renderings (AUDIO, SUBTITLES)  from  master playlist
@@ -737,6 +789,7 @@ char * select_master_playlist_language(airplay_video_t *airplay_video, char *mas
     char *new_master_playlist = master_playlist;
     bool subtitles;
     slice_t *slice = master_playlist_slicer(master_playlist, airplay_video, &n_slice, &subtitles);
+    test_drop_tall_variants(slice, n_slice);
 
     size_t removed = 0;
     size_t added = 0;
