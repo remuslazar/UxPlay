@@ -1250,13 +1250,15 @@ is the recommended player, but if some videos fail to play, you can try
 with version 2.)_
 
 **-hls-select [list]** Select YouTube HLS video with an ordered list of
-four-character playlist codec IDs and optional size limits, for example
-`avc1@1920x1080:vp09@1920x1080`. A bare codec ID has no size limit. No list
-(or an empty string) clears the selection; by default nothing is filtered.
+four-character playlist codec IDs with optional limits: `codec[@WIDTHxHEIGHT[pFPS]]`,
+for example `avc1@1920x1080:vp09@1920x1080p30`. A bare codec ID has no limits.
+Without `pFPS`, frame rate is unrestricted. FPS must be positive, with up to three
+fractional digits (e.g. `p29.97`); frame-rate-only entries such as `avc1@p30`
+are not supported. No list (or an empty string) clears the selection; by default nothing is filtered.
 Invalid or duplicate entries are rejected at startup.
 
-Among matching variants within their codec's width/height limits, the greatest
-pixel count wins; list order breaks ties. All eligible variants of that codec
+Among matching variants within their codec's size and frame-rate limits, the
+greatest pixel count wins; list order breaks ties. All eligible variants of that codec
 are retained so GStreamer can adapt bitrate. Thus H.264 wins a 1080p tie, but
 1080p VP9 wins over 720p H.264. Audio/subtitle rendition declarations and
 explicitly audio-only variants are retained. If no eligible video remains,
@@ -1264,10 +1266,13 @@ playback fails with a diagnostic instead of ignoring the limits.
 
 Unlisted codecs and missing codec metadata are excluded. Missing dimensions
 are allowed only for an unbounded codec and rank below any known resolution.
-Dimensions are compared as encoded, without rotating portrait frames. The
-option filters proxied YouTube master playlists, not direct HTTP(S) URLs or
-screen mirroring. It does not transcode, select hardware decoders, or compare
-frame rates, profiles or HDR formats.
+Dimensions are compared as encoded, without rotating portrait frames. An FPS cap
+excludes regular video variants with missing, malformed or duplicate `FRAME-RATE`
+metadata, even if they might play well. I-frame variants are exempt from the FPS
+cap, but still follow codec and size limits. FPS limits filter eligibility without
+changing the resolution-first ranking. The option filters proxied YouTube master
+playlists, not direct HTTP(S) URLs or screen mirroring. It does not transcode, select hardware decoders, or compare
+profiles or HDR formats.
 
 **-lang \[list\]**  Specify language preferences for YouTube app HLS videos,
 some of which now which offer a choice of language renditions (using AI dubbing of the original). If this option is not 

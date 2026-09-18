@@ -30,12 +30,13 @@ typedef struct media_item_s media_item_t;
 typedef struct {
     char codec[5];
     unsigned int width, height;  /* both zero means no size limit */
+    unsigned int fps_milli;      /* zero means no frame-rate limit */
 } hls_codec_t;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Parse codec[@WIDTHxHEIGHT]:...; caller frees the returned array. Empty resets. */
+/* Parse codec[@WIDTHxHEIGHT[pFPS]]:...; caller frees the returned array. Empty resets. */
 bool hls_select_parse(const char *text, hls_codec_t **codecs, size_t *count);
 /* Filter in place; return number removed, or -1 for invalid/no eligible video. */
 int select_master_playlist_video(char *playlist, const hls_codec_t *codecs, size_t count);
