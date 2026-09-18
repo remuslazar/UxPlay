@@ -23,6 +23,16 @@ UxPlay 1.74: An open\-source AirPlay mirroring (+ audio streaming) server:
 .IP
    v = 2 or 3 (default 3) optionally selects video player version
 .TP
+\fB\-hls-speed\fR n
+Set the assumed HLS connection speed in kbps (0 = automatic, the default),
+for either player version. Use alongside -hls to enable YouTube video AirPlay.
+For example, 5000 means 5 Mbit/s. Allowed range: 0 to 4294967.
+.IP
+Influences variant selection without filtering the playlist. This is not a
+resolution, frame-rate or codec limit; the lowest variant may exceed the
+requested speed. A nonzero value replaces measured bandwidth estimation,
+so a slower actual connection may cause buffering. Mirroring is unaffected.
+.TP
 \fB\-lang\fR ... Ranked HLS language preferences ("fr:pt-BR:.."); " " = none
 .TP
 \fB\-slang\fR ...Ranked HLS subtitle language preferences (overrides -lang) 

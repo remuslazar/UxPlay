@@ -193,6 +193,7 @@ static bool preserve_connections = false;
 static guint missed_feedback_limit = MISSED_FEEDBACK_LIMIT;
 static guint missed_feedback = 0;
 static guint playbin_version = DEFAULT_PLAYBIN_VERSION;
+static guint hls_connection_speed = 0;
 static bool reset_httpd = false;
 static bool monitor_progress = false;
 static uint32_t rtptime = 0;
@@ -944,6 +945,7 @@ static void print_info (char *name) {
     printf("          n=1,2,.. format = H264/5, ALAC/AAC. Default fn=\"recording\"\n");
     printf("-hls [v]  Support HTTP Live Streaming (HLS), Youtube app video only: \n");
     printf("          v = 2 or 3 (default 3) optionally selects video player version\n");
+    printf("-hls-speed n  Assumed HLS connection speed in kbps (0 = automatic, default)\n");
     printf("-lang ... Ranked HLS language preferences (\"fr:pt-BR:..\");\" \" = none\n");
     printf("-slang ...Ranked HLS subtitle language preferences (overrides -lang)\n");
     printf("-scrsv n  Screensaver override n: 0=off 1=on while displaying video 2=always on\n");
@@ -1802,6 +1804,16 @@ static void parse_arguments (int argc, char *argv[]) {
                 }
                 playbin_version = (guint) n;
             }
+        } else if (arg == "-hls-speed") {
+            if (!option_has_value(i, argc, arg, argv[i+1])) exit(1);
+            const char *value = argv[++i];
+            unsigned int speed = G_MAXUINT / 1000;
+            if (!strcmp(value, "0")) speed = 0;
+            else if (strspn(value, "0123456789") != strlen(value) || !get_value(value, &speed)) {
+                fprintf(stderr, "-hls-speed expects an integer from 0 to %u kbps\n", G_MAXUINT / 1000);
+                exit(1);
+            }
+            hls_connection_speed = speed;
         } else if (arg == "-lang") {
             lang_requested.erase();
             if (i < argc - 1 && *argv[i+1] != '-') {
@@ -2209,7 +2221,7 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
             video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(), rtp_pipeline.c_str(),
                                 video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                                 videosink_options.c_str(), fullscreen, video_sync, h265_support,
-                                render_coverart, playbin_version, NULL);
+                                render_coverart, playbin_version, hls_connection_speed, NULL);
             video_renderer_start();
             close_window = false;  // we already closed the window
         }
@@ -3256,7 +3268,7 @@ int main (int argc, char *argv[]) {
         video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(), rtp_pipeline.c_str(),
                             video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                             videosink_options.c_str(), fullscreen, video_sync, h265_support,
-                            render_coverart, playbin_version, NULL);
+                            render_coverart, playbin_version, hls_connection_speed, NULL);
         video_renderer_start();
 #ifdef __OpenBSD__
     } else {
@@ -3361,7 +3373,7 @@ int main (int argc, char *argv[]) {
             video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(),rtp_pipeline.c_str(),
                                 video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                                 videosink_options.c_str(), fullscreen, video_sync, h265_support,
-                                render_coverart, playbin_version, uri);
+                                render_coverart, playbin_version, hls_connection_speed, uri);
             full_video_reset = false;
             video_renderer_start();
         }

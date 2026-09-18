@@ -274,7 +274,7 @@ g_string_replace (GString     *string,
 
 void video_renderer_init(logger_t *render_logger, const char *server_name, videoflip_t videoflip[2], const char *parser, const char * rtp_pipeline,
                           const char *decoder, const char *converter, const char *videosink, const char *videosink_options, 
-                          bool initial_fullscreen, bool video_sync, bool h265_support, bool coverart_support, guint playbin_version, const char *uri) {
+                          bool initial_fullscreen, bool video_sync, bool h265_support, bool coverart_support, guint playbin_version, guint hls_connection_speed, const char *uri) {
     GError *error = NULL;
     GstCaps *caps = NULL;
     bool rtp = (bool) strlen(rtp_pipeline);
@@ -348,6 +348,10 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
             }
             logger_log(logger, LOGGER_INFO, "Will use GStreamer playbin version %u to play HLS streamed video", playbin_version);	    
             g_assert(renderer_type[i]->pipeline);
+            g_object_set(renderer_type[i]->pipeline, "connection-speed", (guint64) hls_connection_speed, NULL);
+            if (hls_connection_speed) {
+                logger_log(logger, LOGGER_INFO, "HLS assumed connection speed: %u kbps", hls_connection_speed);
+            }
             renderer_type[i]->codec = hls;
             /* if we are not using an autovideosink, build a videosink based on the string "videosink" */
             if (!auto_videosink) { 

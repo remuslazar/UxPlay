@@ -1249,6 +1249,18 @@ allows selection of the version of GStreamer's
 is the recommended player, but if some videos fail to play, you can try
 with version 2.)_
 
+**-hls-speed n** Set GStreamer's assumed connection speed for HLS playback in
+kilobits per second, for example `-hls-speed 5000` for 5 Mbit/s. The default `0`
+uses automatic bandwidth estimation. Works with both `-hls 2` and `-hls 3`;
+use alongside `-hls` to enable YouTube video AirPlay.
+
+This influences variant selection without filtering the playlist. It does not
+limit resolution, frame rate or codec: a low-bitrate 4K variant may still be
+selected, and GStreamer may select its lowest variant even when that exceeds
+the requested speed. A nonzero value replaces the measured bandwidth estimate,
+so playback may buffer if the real connection is slower. Values from 0 to
+4294967 kbps are accepted. Mirroring is unaffected.
+
 **-lang \[list\]**  Specify language preferences for YouTube app HLS videos,
 some of which now which offer a choice of language renditions (using AI dubbing of the original). If this option is not 
 used, preferences will be taken from environment variables ($LANGUAGE, $LC_ALL, $LC_MESSAGES, $LANG, searched
