@@ -895,6 +895,30 @@ static bool hls_dimensions(const char *text, const char *end, unsigned int *w, u
     return true;
 }
 
+/* Parse positive decimal fps exactly, with at most three fractional digits. */
+static bool hls_framerate(const char *text, const char *end, unsigned int *fps_milli) {
+    unsigned int value = 0, fraction = 0;
+    bool decimal = false;
+    if (text == end || *text < '0' || *text > '9') return false;
+    for (const char *p = text; p < end; p++) {
+        if (*p == '.' && !decimal) {
+            decimal = true;
+            continue;
+        }
+        if (*p < '0' || *p > '9' || (decimal && ++fraction > 3)) return false;
+        unsigned int digit = (unsigned int)(*p - '0');
+        if (value > (UINT_MAX - digit) / 10) return false;
+        value = value * 10 + digit;
+    }
+    if (!value || (decimal && !fraction)) return false;
+    for (; fraction < 3; fraction++) {
+        if (value > UINT_MAX / 10) return false;
+        value *= 10;
+    }
+    *fps_milli = value;
+    return true;
+}
+
 bool hls_select_parse(const char *text, hls_codec_t **codecs, size_t *count) {
     *codecs = NULL;
     *count = 0;
@@ -909,8 +933,12 @@ bool hls_select_parse(const char *text, hls_codec_t **codecs, size_t *count) {
         if (end - text < 4 || strspn(text, "abcdefghijklmnopqrstuvwxyz0123456789") != 4) goto invalid;
         memcpy(list[n].codec, text, 4);
         for (size_t i = 0; i < n; i++) if (!strcmp(list[i].codec, list[n].codec)) goto invalid;
-        if (end - text > 4 && (text[4] != '@' ||
-            !hls_dimensions(text + 5, end, &list[n].width, &list[n].height))) goto invalid;
+        if (end - text > 4) {
+            if (text[4] != '@') goto invalid;
+            const char *fps = memchr(text + 5, 'p', end - text - 5);
+            if (!hls_dimensions(text + 5, fps ? fps : end, &list[n].width, &list[n].height) ||
+                (fps && !hls_framerate(fps + 1, end, &list[n].fps_milli))) goto invalid;
+        }
         n++;
         if (!*end) break;
         text = end + 1;
@@ -986,6 +1014,11 @@ static size_t hls_variant(const char *line, const char *end, const hls_codec_t *
     if (selected == count) return audio_only && !has_size ? count + 1 : count;
     if (codecs[selected].width && (!has_size || variant->width > codecs[selected].width ||
         variant->height > codecs[selected].height)) return count;
+    if (variant->type != 'I' && codecs[selected].fps_milli) {
+        unsigned int fps;
+        if (hls_attribute(attrs, end, "FRAME-RATE", &value, &last) != 1 ||
+            !hls_framerate(value, last, &fps) || fps > codecs[selected].fps_milli) return count;
+    }
     return selected;
 }
 

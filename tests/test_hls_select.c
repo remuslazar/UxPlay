@@ -1,4 +1,5 @@
 #include "raop.h"
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +8,10 @@
 #define HEAD "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",URI=\"audio.m3u8\"\n" \
              "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"s\",URI=\"subs.m3u8\"\n"
 #define V(c,r,u) "#EXT-X-STREAM-INF:CODECS=\"" c ",mp4a.40.2\",RESOLUTION=" r ",AUDIO=\"a\",SUBTITLES=\"s\"\n" u "\n"
+#define VF(c,r,f,u) V(c, r ",FRAME-RATE=" f, u)
+#define AVC30 VF("avc1.640028", "1920x1080", "30", "avc30.m3u8")
+#define AVC60 VF("avc1.640028", "1920x1080", "60", "avc60.m3u8")
+#define VP930 VF("vp09.00.40.08", "1920x1080", "30", "vp930.m3u8")
 #define AVC V("avc1.640028", "1920x1080", "avc.m3u8")
 #define LOW V("avc1.64001f", "1280x720", "avc-low.m3u8")
 #define VP9 V("vp09.00.40.08", "1920x1080", "vp9.m3u8")
@@ -69,17 +74,70 @@ int main(void) {
     expect(HEAD AVC "#EXT-X-I-FRAME-STREAM-INF:CODECS=\"avc1\",RESOLUTION=3840x2160,URI=\"i.m3u8\"\n", both, HEAD AVC, 1);
     expect(HEAD AVC "#EXT-X-STREAM-INF:CODECS=\"vp09\"\n", both, NULL, -1);
     expect(HEAD AVC "#EXT-X-STREAM-INF:CODECS=\"vp09\"\n" LOW, both, NULL, -1);
+    const char *capped = "avc1@1920x1080p30:vp09@1920x1080p30";
+    expect(HEAD AVC60 AVC30 LOW, capped, HEAD AVC30, 2); /* missing FPS is excluded */
+    expect(HEAD AVC60 VP930, capped, HEAD VP930, 1); /* preference among eligible codecs */
+    expect(HEAD AVC60 VP930, "avc1@1920x1080:vp09@1920x1080p30", HEAD AVC60, 1);
+    expect(HEAD AVC30 AUDIO, capped, HEAD AVC30 AUDIO, 0);
+    expect(HEAD AVC30 VF("avc1", "1280x720", "24", "low.m3u8") AVC60, capped,
+           HEAD AVC30 VF("avc1", "1280x720", "24", "low.m3u8"), 1); /* retain eligible adaptive variants */
+    expect(HEAD AVC, capped, NULL, -1); /* no eligible video leaves input intact */
+    const char *capped_iframes = HEAD AVC30
+        "#EXT-X-I-FRAME-STREAM-INF:CODECS=\"avc1\",RESOLUTION=1280x720,URI=\"i.m3u8\"\n";
+    expect(capped_iframes, capped, capped_iframes, 0);
+    expect(HEAD AVC30 "#EXT-X-I-FRAME-STREAM-INF:CODECS=\"avc1\",RESOLUTION=3840x2160,URI=\"i.m3u8\"\n",
+           capped, HEAD AVC30, 1); /* I-frame size limit still applies */
+    expect(HEAD AVC30 "#EXT-X-I-FRAME-STREAM-INF:CODECS=\"vp09\",RESOLUTION=1280x720,URI=\"i.m3u8\"\n",
+           capped, HEAD AVC30, 1); /* I-frames still follow the winning codec */
+    const char *rates[] = {"23.976", "29.97", "30.000", "30.001", "59.94", "abc", "", "30.",
+        "30,FRAME-RATE=30", "0", "-30", "\"30\"", "1.2345", "999999999999999999999"};
+    for (size_t i = 0; i < sizeof(rates)/sizeof(*rates); i++) {
+        char input[512];
+        snprintf(input, sizeof(input), HEAD AVC30
+                 "#EXT-X-STREAM-INF:CODECS=\"avc1\",RESOLUTION=1920x1080,FRAME-RATE=%s\nrate.m3u8\n", rates[i]);
+        expect(input, capped, i < 3 ? input : HEAD AVC30, i < 3 ? 0 : 1);
+        expect(input, both, input, 0); /* no cap: ignore FPS, even invalid metadata */
+    }
+    expect(HEAD VF("avc1", "1920x1080", "30", "a") VF("avc1", "1920x1080", "29.97", "b"),
+           "avc1@1920x1080p29.97", HEAD VF("avc1", "1920x1080", "29.97", "b"), 1);
+    const char *fps_crlf = "#EXTM3U\r\n#EXT-X-STREAM-INF:CODECS=\"avc1\",RESOLUTION=1920x1080,FRAME-RATE=29.97\r\navc.m3u8";
+    expect(fps_crlf, capped, fps_crlf, 0);
+    const char *valid[] = {"avc1", "avc1@1920x1080", "avc1@1920x1080p30",
+        "avc1@1920x1080p29.97", "avc1@1920x1080p23.976", "avc1@1920x1080p0.001"};
+    const unsigned int milli[] = {0, 0, 30000, 29970, 23976, 1};
+    for (size_t i = 0; i < sizeof(valid)/sizeof(*valid); i++) {
+        hls_codec_t *codecs; size_t count;
+        CHECK(hls_select_parse(valid[i], &codecs, &count));
+        CHECK(count == 1 && codecs[0].fps_milli == milli[i]);
+        free(codecs);
+    }
+    /* Check the exact integer boundary, plus overflow during scaling and parsing. */
+    for (unsigned int extra = 0; extra < 3; extra++) {
+        unsigned long long rate = (unsigned long long)UINT_MAX + extra;
+        char option[96];
+        if (extra == 2) snprintf(option, sizeof(option), "avc1@1x1p%u", UINT_MAX);
+        else snprintf(option, sizeof(option), "avc1@1x1p%llu.%03llu", rate / 1000, rate % 1000);
+        hls_codec_t *codecs; size_t count;
+        CHECK(hls_select_parse(option, &codecs, &count) == (extra == 0));
+        if (!extra) CHECK(count == 1 && codecs[0].fps_milli == UINT_MAX);
+        else CHECK(codecs == NULL && count == 0);
+        free(codecs);
+    }
     const char *bad[] = {"vp9", "AVC1", "avc1:", ":avc1", "avc1::vp09", "avc1:avc1", "avc1@",
-        "avc1@0x1080", "avc1@1920x0", "avc1@-1x1080", "avc1@1920x1080junk", "avc1@999999999999999999999x1"};
+        "avc1@0x1080", "avc1@1920x0", "avc1@-1x1080", "avc1@1920x1080junk", "avc1@999999999999999999999x1",
+        "avc1@1920x1080p", "avc1@1920x1080p0", "avc1@1920x1080p0.000", "avc1@1920x1080p30junk",
+        "avc1@1920x1080p30.", "avc1@1920x1080p1.2345", "avc1@1920x1080px", "avc1@p30",
+        "avc1@1920x1080p.5", "avc1@1920x1080p-30", "avc1@1920x1080p+30",
+        "avc1@1920x1080p30.0.0", "avc1@1920x1080p999999999999999999999"};
     for (size_t i = 0; i < sizeof(bad)/sizeof(*bad); i++) {
         hls_codec_t *codecs; size_t count;
         CHECK(!hls_select_parse(bad[i], &codecs, &count));
         CHECK(codecs == NULL && count == 0);
     }
     /* Every truncation boundary of a realistic playlist, under ASan/UBSan. */
-    char truncated[] = HEAD UHD LOW AVC VP9;
+    char truncated[] = HEAD UHD LOW AVC30 AVC60 VP930;
     hls_codec_t *codecs; size_t count;
-    CHECK(hls_select_parse(both, &codecs, &count));
+    CHECK(hls_select_parse(capped, &codecs, &count));
     for (size_t n = 0; n < sizeof(truncated); n++) {
         char copy[sizeof(truncated)];
         memcpy(copy, truncated, n); copy[n] = '\0';
