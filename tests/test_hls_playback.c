@@ -32,6 +32,11 @@ int main(int argc, char **argv) {
             g_printerr("Missing test plugin: %s\n", required[i]);
             return 77;
         }
+        /* playbin3 does not consistently honor FORCE_SW_DECODERS. Prefer
+         * libav explicitly in this test process so a hardware decoder cannot
+         * negotiate DMA-BUF/VideoMeta with our deliberately plain fakesink. */
+        if (g_str_has_prefix(required[i], "avdec_"))
+            gst_plugin_feature_set_rank(GST_PLUGIN_FEATURE(factory), GST_RANK_PRIMARY + 100);
         gst_object_unref(factory);
     }
     hls_codec_t *codecs;
@@ -53,10 +58,7 @@ int main(int argc, char **argv) {
     g_object_set(playbin, "video-sink", video, "audio-sink", audio, NULL);
     /* Demand the highest surviving variant from startup, even for a short clip.
      * Decode the tiny synthetic frames in software regardless of host hardware. */
-    guint flags = 0;
-    g_object_get(playbin, "flags", &flags, NULL);
-    g_object_set(playbin, "connection-speed", (guint64)100000,
-                 "flags", flags | (1u << 12), NULL);
+    g_object_set(playbin, "connection-speed", (guint64)100000, NULL);
     GstBus *bus = gst_element_get_bus(playbin);
     int result = 0;
     /* Reuse one playbin for two URI loads: element-setup and policy lifetimes
