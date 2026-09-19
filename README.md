@@ -1249,7 +1249,7 @@ allows selection of the version of GStreamer's
 is the recommended player, but if some videos fail to play, you can try
 with version 2.)_
 
-**-hls-select [list]** Select YouTube HLS video with an ordered list of
+**-hls-select [list]** Select HLS video with an ordered list of
 four-character playlist codec IDs and optional size limits, for example
 `avc1@1920x1080:vp09@1920x1080`. A bare codec ID has no size limit. No list
 (or an empty string) clears the selection; by default nothing is filtered.
@@ -1265,9 +1265,27 @@ playback fails with a diagnostic instead of ignoring the limits.
 Unlisted codecs and missing codec metadata are excluded. Missing dimensions
 are allowed only for an unbounded codec and rank below any known resolution.
 Dimensions are compared as encoded, without rotating portrait frames. The
-option filters proxied YouTube master playlists, not direct HTTP(S) URLs or
-screen mirroring. It does not transcode, select hardware decoders, or compare
-frame rates, profiles or HDR formats.
+option filters both proxied YouTube master playlists and master playlists
+fetched by GStreamer from direct URLs (for example, Vimeo's AirPlay handoff).
+It does not transcode, select hardware decoders, or compare frame rates,
+profiles or HDR formats. Screen mirroring, non-HLS files, and direct HLS media
+playlists with no variants are unchanged: they offer no master-playlist choice
+on which these limits can operate.
+
+For direct URLs, UxPlay buffers the initial playlist at the HLS demuxer's input
+and applies the same selector before GStreamer parses it. GStreamer continues
+to handle HTTP redirects, headers, cookies, relative URLs, and media-playlist
+refreshes. Input is bounded to 4 MiB; an oversized or unselectable master fails
+with a diagnostic rather than silently ignoring the policy. No HTTP proxy or
+additional network library is needed. Without `-hls-select` this hook is absent.
+
+For a Full HD display, cap **every** permitted codec: other services can offer
+H.264 above 1080p even when YouTube does not. For example,
+`-hls-select hvc1@1920x1080:hev1@1920x1080:avc1@1920x1080:vp09@1920x1080`
+prefers HEVC at equal resolution and permits H.264/VP9 fallback. Only enable
+that preference after verifying the complete decoder/rendering pipeline on
+the receiver; HEVC hardware availability alone does not establish smooth HDR
+playback.
 
 **-lang \[list\]**  Specify language preferences for YouTube app HLS videos,
 some of which now which offer a choice of language renditions (using AI dubbing of the original). If this option is not 

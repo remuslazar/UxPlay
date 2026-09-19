@@ -944,7 +944,7 @@ static void print_info (char *name) {
     printf("-h265     Support h265 (4K) video (with h265 versions of h264 plugins)\n");
     printf("-mp4 [fn] Record (non-HLS)audio/video to mp4 file \"fn.[n].[format].mp4\"\n");
     printf("          n=1,2,.. format = H264/5, ALAC/AAC. Default fn=\"recording\"\n");
-    printf("-hls [v]  Support HTTP Live Streaming (HLS), Youtube app video only: \n");
+    printf("-hls [v]  Support AirPlay HTTP Live Streaming (HLS) video\n");
     printf("          v = 2 or 3 (default 3) optionally selects video player version\n");
     printf("-hls-select [list] Select HLS codecs and size limits, e.g.\n");
     printf("                  avc1@1920x1080:vp09@1920x1080 (default: unrestricted)\n");
@@ -2220,7 +2220,7 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
             video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(), rtp_pipeline.c_str(),
                                 video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                                 videosink_options.c_str(), fullscreen, video_sync, h265_support,
-                                render_coverart, playbin_version, NULL);
+                                render_coverart, playbin_version, NULL, hls_codecs, hls_codec_count);
             video_renderer_start();
             close_window = false;  // we already closed the window
         }
@@ -3268,7 +3268,7 @@ int main (int argc, char *argv[]) {
         video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(), rtp_pipeline.c_str(),
                             video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                             videosink_options.c_str(), fullscreen, video_sync, h265_support,
-                            render_coverart, playbin_version, NULL);
+                            render_coverart, playbin_version, NULL, hls_codecs, hls_codec_count);
         video_renderer_start();
 #ifdef __OpenBSD__
     } else {
@@ -3373,7 +3373,7 @@ int main (int argc, char *argv[]) {
             video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(),rtp_pipeline.c_str(),
                                 video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                                 videosink_options.c_str(), fullscreen, video_sync, h265_support,
-                                render_coverart, playbin_version, uri);
+                                render_coverart, playbin_version, uri, hls_codecs, hls_codec_count);
             full_video_reset = false;
             video_renderer_start();
         }
