@@ -233,11 +233,20 @@ http_handler_scrub(raop_conn_t *conn, http_request_t *request, http_response_t *
         }
     }
     logger_log(raop->logger, LOGGER_DEBUG, "**********************SCRUB %f ***********************",scrub_position);
-    /* a video whose playlists are still fetched starts at this position (the player still plays the previous one) */
+    /* while the playlists of a video are fetched, the player still plays the previous one, and the video
+       starts where that one was.  A client that replaced its video (playlistInsert) scrubs the new one to the
+       time it knows, which can be stale: the YouTube app sent 0 while the video was at 931 s.  The scrub
+       only counts when the position is not known */
     int id = raop->current_video;
     if (id >= 0 && raop->airplay_video[id] && get_fetching_playlists(raop->airplay_video[id])) {
-        set_start_position_seconds(raop->airplay_video[id], scrub_position);
-        logger_log(raop->logger, LOGGER_INFO, "scrub before the video starts: it will start at %.3f s", scrub_position);
+        float start_position = get_start_position_seconds(raop->airplay_video[id]);
+        if (start_position > 0.0f) {
+            logger_log(raop->logger, LOGGER_INFO, "scrub to %.3f s before the video starts: it starts at %.3f s",
+                       scrub_position, start_position);
+        } else {
+            set_start_position_seconds(raop->airplay_video[id], scrub_position);
+            logger_log(raop->logger, LOGGER_INFO, "scrub before the video starts: it will start at %.3f s", scrub_position);
+        }
         return;
     }
     raop->callbacks.on_video_scrub(raop->callbacks.cls, scrub_position);
@@ -734,8 +743,9 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
                    strncmp(location, "http://", strlen("http://")) && strncmp(location, "https://", strlen("https://"))) {
             /* the client removed the video that played and inserts the one that replaces it: the YouTube app does
                this when another audio track is selected, for the same video under a new uuid.  It starts where
-               the removed one was, unless the client scrubs before it starts */
+               the removed one was */
             float position = get_resume_position_seconds(session_video);
+            position = position > 0.0f ? position : 0.0f;
             raop->removed_video = -1;
             airplay_video = hls_add_video(raop, session_id, insert_uuid);
             if (airplay_video) {
