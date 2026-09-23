@@ -750,7 +750,6 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             airplay_video = hls_add_video(raop, session_id, insert_uuid);
             if (airplay_video) {
                 set_start_position_seconds(airplay_video, position);
-                set_announce_playing(airplay_video, true);
                 hls_set_master_location(airplay_video, location);
                 logger_log(raop->logger, LOGGER_INFO, "playlistInsert: playing uuid %s in place of the removed video, at %.3f s",
                            insert_uuid, position);
@@ -894,12 +893,6 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             raop->callbacks.on_video_play(raop->callbacks.cls,
                                                 get_playback_location(airplay_video),
                                                 get_start_position_seconds(airplay_video));
-            /* after /play, the client polls /playback-info on its own; after it inserted a video in place of
-               the one it removed, it does not, and its time for the video stays where it was */
-            if (get_announce_playing(airplay_video)) {
-                set_announce_playing(airplay_video, false);
-                video_state_event((void *) conn, apple_session_id, "playing");
-            }
         }
 
 

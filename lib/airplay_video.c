@@ -58,7 +58,6 @@ struct airplay_video_s {
     char *lang_client_applied;  /* lang_client when the master playlist was last reduced */
     char *lang_audio_selected;  /* the AUDIO language the master playlist was reduced to */
     bool fetching_playlists;
-    bool announce_playing;      /* tell the client (video state event) when the video starts */
     int next_uri;
     int FCUP_RequestID;
     float start_position_seconds;
@@ -99,7 +98,6 @@ airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port, cons
     airplay_video->lang_client_applied = NULL;
     airplay_video->lang_audio_selected = NULL;
     airplay_video->fetching_playlists = false;
-    airplay_video->announce_playing = false;
      /* create local_uri_prefix string */
     snprintf(port, sizeof(port), "%u", http_port);
     size_t len = strlen(uri) + strlen(port);
@@ -241,15 +239,6 @@ void set_fetching_playlists(airplay_video_t *airplay_video, bool fetching) {
 
 bool get_fetching_playlists(airplay_video_t *airplay_video) {
     return airplay_video->fetching_playlists;
-}
-
-/* the client learns from a video state event that this video plays (a video it inserted) */
-void set_announce_playing(airplay_video_t *airplay_video, bool announce) {
-    airplay_video->announce_playing = announce;
-}
-
-bool get_announce_playing(airplay_video_t *airplay_video) {
-    return airplay_video->announce_playing;
 }
 
 const char *get_apple_session_id(airplay_video_t *airplay_video) {
