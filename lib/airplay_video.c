@@ -212,6 +212,10 @@ void set_client_audio_language(airplay_video_t *airplay_video, const char *langu
     airplay_video->lang_client = language ? strdup(language) : NULL;
 }
 
+const char *get_client_audio_language(airplay_video_t *airplay_video) {
+    return airplay_video->lang_client;
+}
+
 const char *get_apple_session_id(airplay_video_t *airplay_video) {
     if (!airplay_video || !airplay_video->apple_session_id) {
         return NULL;

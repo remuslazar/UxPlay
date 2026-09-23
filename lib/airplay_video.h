@@ -42,6 +42,7 @@ char *get_uri_local_prefix(airplay_video_t *airplay_video);
 void set_playback_location(airplay_video_t *airplay_video, const char *location, size_t len);
 const char *get_playback_location(airplay_video_t *airplay_video);
 void set_client_audio_language(airplay_video_t *airplay_video, const char *language);
+const char *get_client_audio_language(airplay_video_t *airplay_video);
 
 int get_next_FCUP_RequestID(airplay_video_t *airplay_video);    
 void set_next_media_uri_id(airplay_video_t *airplay_video, int id);

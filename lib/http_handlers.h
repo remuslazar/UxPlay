@@ -156,17 +156,30 @@ http_handler_stop(raop_conn_t *conn, http_request_t *request, http_response_t *r
     raop_t *raop = conn->raop;
     logger_log(raop->logger, LOGGER_INFO, "client HTTP request POST stop");
 
+    raop->removed_video = -1;
     raop->callbacks.on_video_stop(raop->callbacks.cls);
+}
+
+static bool
+same_language(const char *language1, const char *language2) {
+    return language1 && language2 ? !strcmp(language1, language2) : language1 == language2;
 }
 
 /* stores the audio language the client selected (e.g. the audio track picked in the YouTube app), or
    none: selectedMediaArray arrives after POST /play and before the master playlist, whose AUDIO
-   renditions are then reduced to that language */
+   renditions are then reduced to that language.
+   A client that changes the audio track during the video first removes the video (playlistRemove), then
+   sends the new selection.  The master playlist is then requested again, reduced to the new language,
+   and the video restarts where it was */
 static void
-set_selected_audio_language(raop_t *raop, http_request_t *request) {
-    if (raop->current_video < 0 || !raop->airplay_video[raop->current_video]) {
+set_selected_audio_language(raop_conn_t *conn, http_request_t *request) {
+    raop_t *raop = conn->raop;
+    bool removed = raop->current_video < 0;
+    int id = removed ? raop->removed_video : raop->current_video;
+    if (id < 0 || !raop->airplay_video[id]) {
         return;
     }
+    airplay_video_t *airplay_video = raop->airplay_video[id];
     int request_datalen = 0;
     const char *request_data = http_request_get_data(request, &request_datalen);
     if (request_datalen <= 0) {
@@ -202,12 +215,42 @@ set_selected_audio_language(raop_t *raop, http_request_t *request) {
             plist_get_string_val(language_node, &language);
         }
     }
-    set_client_audio_language(raop->airplay_video[raop->current_video], language);
+    bool changed = removed || !same_language(language, get_client_audio_language(airplay_video));
+    set_client_audio_language(airplay_video, language);
     logger_log(raop->logger, LOGGER_INFO, "client selected audio language: %s", language ? language : "none");
     if (language) {
         plist_mem_free(language);
     }
     plist_free(req_root_node);
+
+    /* nothing to reload before the master playlist has arrived, or for a video that is not an HLS
+       playlist served by the client */
+    const char *uri_prefix = get_uri_prefix(airplay_video);
+    if (!changed || !get_master_playlist(airplay_video) || !uri_prefix) {
+        return;
+    }
+    float position = get_resume_position_seconds(airplay_video);
+    if (!removed) {
+        playback_info_t playback_info;
+        raop->callbacks.on_video_acquire_playback_info(raop->callbacks.cls, &playback_info);
+        position = playback_info.position > 0.0 ? (float) playback_info.position : get_start_position_seconds(airplay_video);
+    }
+    raop->current_video = id;
+    raop->removed_video = -1;
+    set_start_position_seconds(airplay_video, position);
+    set_next_media_uri_id(airplay_video, 0);
+    size_t len = strlen(uri_prefix) + strlen("/master.m3u8");
+    char *master_url = (char *) calloc(len + 1, sizeof(char));
+    if (!master_url) {
+        printf("Memory allocation failed (master_url)\n");
+        exit(1);
+    }
+    strcat(master_url, uri_prefix);
+    strcat(master_url, "/master.m3u8");
+    logger_log(raop->logger, LOGGER_INFO, "audio language changed: reloading the video at %.3f s", position);
+    fcup_request((void *) conn, master_url, get_apple_session_id(airplay_video),
+                 get_next_FCUP_RequestID(airplay_video));
+    free(master_url);
 }
 
 /* handles PUT /setProperty http requests from Client to Server */
@@ -238,7 +281,7 @@ http_handler_set_property(raop_conn_t *conn,
     */
 
     if (!strcmp(property, "selectedMediaArray")) {
-        set_selected_audio_language(raop, request);
+        set_selected_audio_language(conn, request);
     } else if (!strcmp(property, "actionAtItemEnd") ||
         !strcmp(property, "reverseEndTime") ||
         !strcmp(property, "forwardEndTime") ||
@@ -535,6 +578,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         int id  =  get_playlist_by_uuid(raop, remove_uuid);
         if (id == raop->current_video) {
             raop->current_video = -1;
+            raop->removed_video = id;
             float position = raop->callbacks.on_video_playlist_remove(raop->callbacks.cls);
             /* keep the playlist (until space is needed for another one) in case its playback_uuid is re-requested
                the video will then be restarted at its previous position */
@@ -775,6 +819,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
 
     int id = -1;
     id = get_playlist_by_uuid(raop, playback_uuid);
+    raop->removed_video = -1;
 
     if (id >= 0 && !get_playback_location(raop->airplay_video[id])) {
         raop_destroy_airplay_video(raop, id);
