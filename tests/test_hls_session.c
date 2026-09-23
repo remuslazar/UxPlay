@@ -11,8 +11,10 @@ static ssize_t capture_send(int fd, const void *data, size_t len, int flags);
 #include "../lib/raop.c"
 #undef send
 
+#define CHECK(x) do { if (!(x)) { fprintf(stderr, "line %d: %s\n", __LINE__, #x); exit(1); } } while (0)
+
 static ssize_t capture_send(int fd, const void *data, size_t len, int flags) {
-    assert(events_len + len < sizeof(events));
+    CHECK(events_len + len < sizeof(events));
     memcpy(events + events_len, data, len);
     events_len += len;
     events[events_len] = 0;
@@ -22,7 +24,7 @@ static ssize_t capture_send(int fd, const void *data, size_t len, int flags) {
 static float player_position = 763.007f;
 static int plays, scrubs;
 static void play(void *cls, const char *url, float position) {
-    assert(strstr(url, "/master.m3u8"));
+    CHECK(strstr(url, "/master.m3u8"));
     player_position = position;
     plays++;
 }
@@ -58,7 +60,7 @@ static plist_t request(raop_conn_t *conn, handler_t handler, const char *method,
     http_request_add_data(req, headers, n);
     if (len) http_request_add_data(req, bin, len);
     plist_mem_free(bin);
-    assert(http_request_is_complete(req));
+    CHECK(http_request_is_complete(req));
     http_response_t *res = http_response_create();
     http_response_init(res, "HTTP/1.1", 200, "OK");
     char *data = NULL;
@@ -67,7 +69,7 @@ static plist_t request(raop_conn_t *conn, handler_t handler, const char *method,
     http_response_finish(res, data, data_len);
     int raw_len;
     const char *raw = http_response_get_data(res, &raw_len);
-    assert(atoi(raw + 9) == code);
+    CHECK(atoi(raw + 9) == code);
     plist_t result = NULL;
     if (data_len) plist_from_xml(data, data_len, &result);
     free(data);
@@ -87,10 +89,10 @@ static plist_t action(const char *type, const char *uuid) {
     return root;
 }
 static void ok(plist_t p) {
-    assert(p);
+    CHECK(p);
     uint64_t code = 99;
     plist_get_uint_val(plist_dict_get_item(p, "errorCode"), &code);
-    assert(code == 0);
+    CHECK(code == 0);
     plist_free(p);
 }
 static void select_language(raop_conn_t *conn, const char *language) {
@@ -120,15 +122,15 @@ static void complete_playlists(raop_conn_t *conn, const char *language) {
              "mlhls://localhost/video.m3u8\n");
     airplay_video_t *video = hls_get_current_video(conn->raop);
     const char *master = get_master_playlist(video);
-    assert(strstr(master, language));
-    assert(!strstr(master, !strcmp(language, "en-US") ? "de-DE" : "en-US"));
+    CHECK(strstr(master, language));
+    CHECK(!strstr(master, !strcmp(language, "en-US") ? "de-DE" : "en-US"));
     int count = get_num_media_uri(video);
     for (int i = 0; i < count; i++) {
         char *url = strdup(get_media_uri_by_num(video, i));
         playlist(conn, url, "#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXTINF:10,\nhttps://example.org/segment.ts\n#EXT-X-ENDLIST\n");
         free(url);
     }
-    assert(!get_fetching_playlists(video));
+    CHECK(!get_fetching_playlists(video));
 }
 int main(void) {
     raop_t raop = {0};
@@ -149,25 +151,25 @@ int main(void) {
     const char *uuids[] = {first, second, third};
     for (int turn = 0; turn < 2; turn++) {
         ok(request(&conn, http_handler_action, "POST", "/action", action("playlistRemove", uuids[turn]), 200));
-        assert(raop.current_video == -1);
+        CHECK(raop.current_video == -1);
         events_len = 0;
         ok(request(&conn, http_handler_action, "POST", "/action", action("playlistInsert", uuids[turn+1]), 200));
-        assert(strstr(events, "currentItemChanged"));
-        assert(strstr(events, uuids[turn+1]));
-        assert(strstr(events, "unhandledURLRequest"));
+        CHECK(strstr(events, "currentItemChanged"));
+        CHECK(strstr(events, uuids[turn+1]));
+        CHECK(strstr(events, "unhandledURLRequest"));
         /* The new item gets the seek; the old pipeline must not be resumed. */
         const char *url = turn ? "/scrub?position=0" : "/scrub?position=763.007";
-        assert(!request(&conn, http_handler_scrub, "POST", url, NULL, 200));
-        assert(scrubs == 0);
+        CHECK(!request(&conn, http_handler_scrub, "POST", url, NULL, 200));
+        CHECK(scrubs == 0);
         const char *language = turn ? "de-DE" : "en-US";
         select_language(&conn, language);
         complete_playlists(&conn, language);
-        assert(plays == turn + 1);
-        assert(fabs(player_position - (turn ? 0 : 763.007f)) < 0.01);
+        CHECK(plays == turn + 1);
+        CHECK(fabs(player_position - (turn ? 0 : 763.007f)) < 0.01);
         plist_t p = request(&conn, http_handler_playback_info, "GET", "/playback-info", NULL, 200);
         char *uuid = NULL;
         plist_get_string_val(plist_dict_get_item(p, "uuid"), &uuid);
-        assert(uuid && !strcmp(uuid, uuids[turn+1]));
+        CHECK(uuid && !strcmp(uuid, uuids[turn+1]));
         plist_mem_free(uuid); plist_free(p);
     }
     for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++)
