@@ -46,6 +46,8 @@ const char *get_client_audio_language(airplay_video_t *airplay_video);
 bool client_audio_language_changed(airplay_video_t *airplay_video);
 void set_fetching_playlists(airplay_video_t *airplay_video, bool fetching);
 bool get_fetching_playlists(airplay_video_t *airplay_video);
+void set_announce_playing(airplay_video_t *airplay_video, bool announce);
+bool get_announce_playing(airplay_video_t *airplay_video);
 
 int get_next_FCUP_RequestID(airplay_video_t *airplay_video);    
 void set_next_media_uri_id(airplay_video_t *airplay_video, int id);

@@ -111,3 +111,41 @@ int fcup_request(void *conn_opaque, const char *media_url, const char *client_se
                send_len, socket_fd);
     return 0;
 }
+
+/* sends a video state event (the "state" of category "video": loading, playing, paused or stopped) to the
+   client on the reverse http channel, as in the original AirPlay video protocol */
+int video_state_event(void *conn_opaque, const char *client_session_id, const char *state) {
+    raop_conn_t *conn = (raop_conn_t *) conn_opaque;
+    raop_t *raop = conn->raop;
+    int requestlen = 0;
+    int socket_fd = httpd_get_connection_socket_by_type(raop->httpd, CONNECTION_TYPE_PTTH, 1);
+
+    plist_t event_node = plist_new_dict();
+    plist_dict_set_item(event_node, "category", plist_new_string("video"));
+    plist_dict_set_item(event_node, "sessionID", plist_new_uint(1));
+    plist_dict_set_item(event_node, "state", plist_new_string(state));
+    char *plist_xml = NULL;
+    uint32_t datalen = 0;
+    plist_to_xml(event_node, &plist_xml, &datalen);
+    plist_free(event_node);
+
+    http_response_t *request = http_response_create();
+    http_response_reverse_request_init(request, "POST", "/event", "HTTP/1.1");
+    http_response_add_header(request, "X-Apple-Session-ID", client_session_id);
+    http_response_add_header(request, "Content-Type", "text/x-apple-plist+xml");
+    http_response_finish(request, plist_xml, (int) datalen);
+    plist_mem_free(plist_xml);
+
+    const char *http_request = http_response_get_data(request, &requestlen);
+    int send_len = send(socket_fd, http_request, requestlen, 0);
+    if (send_len < 0) {
+        int sock_err = SOCKET_GET_ERROR();
+        logger_log(raop->logger, LOGGER_ERR, "video_state_event: send error %d:%s\n",
+                   sock_err, SOCKET_ERROR_STRING(sock_err));
+        http_response_destroy(request);
+        return -1;
+    }
+    http_response_destroy(request);
+    logger_log(raop->logger, LOGGER_INFO, "video state event sent to the client: %s", state);
+    return 0;
+}
