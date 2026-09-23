@@ -84,7 +84,8 @@ struct raop_s {
     /* place to store media_data_store */
     airplay_video_t *airplay_video[MAX_AIRPLAY_VIDEO];
     int current_video;
-    /* the video the client removed (playlistRemove), until POST /stop or /play: a new audio selection may follow */
+    /* the video the client removed (playlistRemove), until POST /stop or /play: the client may insert the one
+       that replaces it (playlistInsert) */
     int removed_video;
 
     /* activate support for HLS live streaming */
