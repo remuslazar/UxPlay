@@ -446,6 +446,11 @@ int create_playback_info_plist_xml(playback_info_t *playback_info, char **plist_
 
     plist_t res_root_node = plist_new_dict();
 
+    if (playback_info->uuid) {
+        plist_t uuid_node = plist_new_string(playback_info->uuid);
+        plist_dict_set_item(res_root_node, "uuid", uuid_node);
+    }
+
     plist_t duration_node = plist_new_real(playback_info->duration);
     plist_dict_set_item(res_root_node, "duration", duration_node);
 
@@ -501,6 +506,10 @@ http_handler_playback_info(raop_conn_t *conn, http_request_t *request, http_resp
     playback_info_t playback_info;
 
     playback_info.stallcount = 0;
+    /* the client identifies the video by its uuid: after it replaced the video (playlistRemove, then
+       playlistInsert under a new uuid), it takes this information as that of the new one */
+    int id = raop->current_video;
+    playback_info.uuid = id >= 0 && raop->airplay_video[id] ? get_playback_uuid(raop->airplay_video[id]) : NULL;
     //playback_info.playback_buffer_empty = false;   // maybe  need to get this from playbin 
     //playback_info.playback_buffer_full = true;
     //ayback_info.ready_to_play = true; // ???;
