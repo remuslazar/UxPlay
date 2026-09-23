@@ -306,6 +306,13 @@ set_selected_audio_language(raop_conn_t *conn, http_request_t *request) {
     plist_from_bin(request_data, request_datalen, &req_root_node);
     plist_t options_node = PLIST_IS_DICT(req_root_node) ? plist_dict_get_item(req_root_node, "value") : NULL;
     int count = PLIST_IS_ARRAY(options_node) ? (int) plist_array_get_size(options_node) : 0;
+    char *selection = NULL;
+    if (PLIST_IS_ARRAY(options_node)) {
+        uint32_t selection_len = 0;
+        plist_to_xml(options_node, &selection, &selection_len);
+    }
+    set_client_media_selection(airplay_video, selection);
+    plist_mem_free(selection);
     char *language = NULL;
     for (int i = 0; i < count && !language; i++) {
         plist_t option_node = plist_array_get_item(options_node, i);
@@ -411,7 +418,34 @@ http_handler_get_property(raop_conn_t *conn, http_request_t *request, http_respo
                           char **response_data, int *response_datalen) {
     raop_t *raop = conn->raop;
     const char *url = http_request_get_url(request);
-    const char *property = url + strlen("getProperty?");
+    const char *property = strchr(url, '?');
+    property = property ? property + 1 : "";
+
+    /* the media selection of the current video: the one the client set, else that of the video it replaced */
+    if (!strcmp(property, "selectedMediaArray")) {
+        int id = raop->current_video;
+        const char *selection = id >= 0 && raop->airplay_video[id] ?
+                                get_client_media_selection(raop->airplay_video[id]) : NULL;
+        plist_t value_node = NULL;
+        if (selection) {
+            plist_from_xml(selection, strlen(selection), &value_node);
+        }
+        if (!PLIST_IS_ARRAY(value_node)) {
+            if (value_node) {
+                plist_free(value_node);
+            }
+            value_node = plist_new_array();
+        }
+        logger_log(raop->logger, LOGGER_INFO, "getProperty selectedMediaArray: %u media selection option(s)",
+                   plist_array_get_size(value_node));
+        plist_t res_root_node = plist_new_dict();
+        plist_dict_set_item(res_root_node, "errorCode", plist_new_uint(0));
+        plist_dict_set_item(res_root_node, "value", value_node);
+        plist_to_xml(res_root_node, response_data, (uint32_t *) response_datalen);
+        plist_free(res_root_node);
+        http_response_add_header(response, "Content-Type", "text/x-apple-plist+xml");
+        return;
+    }
     logger_log(raop->logger, LOGGER_DEBUG, "http_handler_get_property: %s (unhandled)", property);
 }
 
@@ -732,6 +766,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             plist_mem_free(plist_xml);
         }
         char *location = NULL;
+        char *selection = NULL;
         plist_t req_params_item_location_node = plist_dict_get_item(req_params_item_node, "Content-Location");
         if (PLIST_IS_STRING(req_params_item_location_node)) {
             plist_get_string_val(req_params_item_location_node, &location);
@@ -746,10 +781,13 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
                the removed one was */
             float position = get_resume_position_seconds(session_video);
             position = position > 0.0f ? position : 0.0f;
+            const char *removed_selection = get_client_media_selection(session_video);
+            selection = removed_selection ? strdup(removed_selection) : NULL;
             raop->removed_video = -1;
             airplay_video = hls_add_video(raop, session_id, insert_uuid);
             if (airplay_video) {
                 set_start_position_seconds(airplay_video, position);
+                set_client_media_selection(airplay_video, selection);
                 hls_set_master_location(airplay_video, location);
                 logger_log(raop->logger, LOGGER_INFO, "playlistInsert: playing uuid %s in place of the removed video, at %.3f s",
                            insert_uuid, position);
@@ -760,6 +798,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         }
         plist_mem_free(location);
         plist_mem_free(insert_uuid);
+        free(selection);
         if (!airplay_video) {
             goto post_action_error;
         }

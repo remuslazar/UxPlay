@@ -58,6 +58,7 @@ struct airplay_video_s {
     char *lang_client_applied;  /* lang_client when the master playlist was last reduced */
     char *lang_audio_selected;  /* the AUDIO language the master playlist was reduced to */
     bool fetching_playlists;
+    char *media_selection;      /* the client's selectedMediaArray value (XML plist), for getProperty */
     int next_uri;
     int FCUP_RequestID;
     float start_position_seconds;
@@ -98,6 +99,7 @@ airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port, cons
     airplay_video->lang_client_applied = NULL;
     airplay_video->lang_audio_selected = NULL;
     airplay_video->fetching_playlists = false;
+    airplay_video->media_selection = NULL;
      /* create local_uri_prefix string */
     snprintf(port, sizeof(port), "%u", http_port);
     size_t len = strlen(uri) + strlen(port);
@@ -145,6 +147,9 @@ airplay_video_destroy(airplay_video_t *airplay_video) {
     }
     if (airplay_video->lang_audio_selected) {
         free(airplay_video->lang_audio_selected);
+    }
+    if (airplay_video->media_selection) {
+        free(airplay_video->media_selection);
     }
     if (airplay_video->media_data_store) {
         destroy_media_data_store(airplay_video);
@@ -239,6 +244,15 @@ void set_fetching_playlists(airplay_video_t *airplay_video, bool fetching) {
 
 bool get_fetching_playlists(airplay_video_t *airplay_video) {
     return airplay_video->fetching_playlists;
+}
+
+/* the media selection the client set (the value of PUT /setProperty?selectedMediaArray, as an XML plist), or NULL */
+void set_client_media_selection(airplay_video_t *airplay_video, const char *selection) {
+    replace_string(&airplay_video->media_selection, selection);
+}
+
+const char *get_client_media_selection(airplay_video_t *airplay_video) {
+    return airplay_video->media_selection;
 }
 
 const char *get_apple_session_id(airplay_video_t *airplay_video) {
