@@ -825,12 +825,19 @@ static void get_stream_status_name(GstStreamStatusType type, char *name, size_t 
     }
 }
 
+/* HLS seeks go to the position asked for. A KEY_UNIT seek is snapped by hlsdemux2 on every selected
+ * stream, and playback starts at the earliest of them: YouTube's subtitle renditions come in 10-minute
+ * segments, so a seek to 28:00 played from 20:00. adaptivedemux2 makes a seek that is neither snapping
+ * nor ACCURATE a KEY_UNIT one; ACCURATE starts each stream at the segment holding the position, and
+ * the decoders drop what precedes it. */
+#define HLS_SEEK_FLAGS ((GstSeekFlags) (GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE))
+
 static void hls_video_seek_to_start_position(GstElement *pipeline) {
     if (hls_requested_start_position && hls_seek_enabled && hls_requested_start_position >= hls_seek_start
         && hls_requested_start_position  <= hls_seek_end) {
         g_print("***************** seek to hls_requested_start_position %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(hls_requested_start_position));
         if (gst_element_seek_simple (pipeline, GST_FORMAT_TIME,
-				 GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT, hls_requested_start_position)) {
+				 HLS_SEEK_FLAGS, hls_requested_start_position)) {
             hls_requested_start_position = 0;
         } else {
             g_print("*** seek to requested_start_position failed\n"); 
@@ -1187,8 +1194,7 @@ void video_renderer_seek(float position) {
     seek_position =  seek_position > hls_duration  - 1000 ? hls_duration - 1000 : seek_position;
     g_print("SCRUB: seek to %f secs =  %" GST_TIME_FORMAT ", duration = %" GST_TIME_FORMAT "\n", position,
             GST_TIME_ARGS(seek_position),  GST_TIME_ARGS(hls_duration));
-    gboolean result = gst_element_seek_simple(renderer->pipeline, GST_FORMAT_TIME,
-                                              (GstSeekFlags)(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT),
+    gboolean result = gst_element_seek_simple(renderer->pipeline, GST_FORMAT_TIME, HLS_SEEK_FLAGS,
                                               seek_position);
     if (result) {
         g_print("seek succeeded\n");
