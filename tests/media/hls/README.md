@@ -30,3 +30,10 @@ ffmpeg -f lavfi -i 'anullsrc=r=48000:cl=stereo' -t 4 -c:a aac \
 its HTTP/HLS or libav decoder plugins are missing. `hls_selection_input` tests
 the manifest hook without those optional plugins, including every chunk size,
 buffer lists, flush/restart, cancellation, oversized input and selection errors.
+
+`seek-master.m3u8` adds a WebVTT subtitle rendition to the AVC and audio
+playlists, written by hand in the shape of YouTube's: one segment for the whole
+video (YouTube's are ten minutes long), `DEFAULT=NO,AUTOSELECT=NO`. `hls_seek`
+plays it through the renderer, scrubs to 2.5 s and checks the position the
+client is told next. With KEY_UNIT seeks hlsdemux2 snapped the scrub to the
+start of the subtitle segment, 0 s.
