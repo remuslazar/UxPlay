@@ -73,6 +73,11 @@ static gint64 hls_seek_end = 0;
 static gint64 hls_duration = 0;
 static gboolean hls_seek_enabled = FALSE;
 static gboolean hls_playing = FALSE;
+/* The client paused the video (rate 0) and did not resume it yet (rate 1): a seek or the end of buffering
+ * keeps it paused. YouTube pauses while its slider is dragged and stays paused after the scrub. */
+static gboolean hls_paused = FALSE;
+/* A scrub of the paused video, until the playback info has reported where it landed */
+static gboolean hls_paused_scrub = FALSE;
 static gboolean hls_buffer_empty = FALSE;
 static gboolean hls_buffer_full = FALSE;
 /* The gain last asked for, kept outside the playbin: a HLS session builds a new one for every video, and
@@ -289,6 +294,8 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
     logger_debug = (logger_get_level(logger) >= LOGGER_DEBUG);
     hls_seek_enabled = FALSE;
     hls_playing = FALSE;
+    hls_paused = FALSE;
+    hls_paused_scrub = FALSE;
     hls_seek_start = -1;
     hls_seek_end = -1;
     hls_duration = -1;
@@ -516,6 +523,8 @@ void video_renderer_pause() {
     if (!renderer) {
         return;
     }
+    hls_paused = TRUE;
+    hls_paused_scrub = FALSE;
     GstStateChangeReturn ret = gst_element_set_state(renderer->pipeline, GST_STATE_PAUSED);
     logger_log(logger, LOGGER_DEBUG, "video renderer pause: %s", gst_element_state_change_return_get_name(ret));
 }
@@ -524,6 +533,8 @@ void video_renderer_resume() {
     if (!renderer) {
         return;
     }
+    hls_paused = FALSE;
+    hls_paused_scrub = FALSE;
     gst_element_set_state (renderer->pipeline, GST_STATE_PLAYING);
     GstState state;
     /* wait with timeout 100 msec for pipeline to change state from PAUSED to PLAYING */
@@ -927,7 +938,9 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
                     gst_element_set_state (renderer->pipeline, GST_STATE_PAUSED);
                 } else {
                     hls_buffer_full = TRUE;
-                    gst_element_set_state (renderer->pipeline, GST_STATE_PLAYING);
+                    if (!hls_paused) {
+                        gst_element_set_state (renderer->pipeline, GST_STATE_PLAYING);
+                    }
                 }
             }
         }
@@ -1161,6 +1174,15 @@ bool video_get_playback_info(double *duration, double *position, double *seek_st
         }
     }
 
+    /* The client takes a scrub as done once the video plays (the YouTube app shows a spinner until then), and then
+     * sends the rate it wants. A paused video stays paused when scrubbed: report it as playing once, when the seek
+     * has landed, and the client sends its rate 0 without the video having played. */
+    if (hls_paused_scrub && *position >= 0.0) {
+        hls_paused_scrub = FALSE;
+        *rate = 1.0f;
+        logger_log(logger, LOGGER_DEBUG, "paused video scrubbed to %f s: playback info reports rate 1 once", *position);
+    }
+
     logger_log(logger, LOGGER_DEBUG, "******* video_get_playback_info: position %" GST_TIME_FORMAT " duration %" GST_TIME_FORMAT " %s rate %f *****",
                GST_TIME_ARGS (pos), GST_TIME_ARGS (hls_duration), gst_element_state_get_name(state), *rate);
 
@@ -1192,7 +1214,12 @@ void video_renderer_seek(float position) {
                                               seek_position);
     if (result) {
         g_print("seek succeeded\n");
-        gst_element_set_state (renderer->pipeline, GST_STATE_PLAYING);	
+        /* a scrub moves the position, not the rate: a paused video shows the frame it was scrubbed to */
+        if (hls_paused) {
+            hls_paused_scrub = TRUE;
+        } else {
+            gst_element_set_state (renderer->pipeline, GST_STATE_PLAYING);
+        }
     } else {
         g_print("seek failed\n");
     }
