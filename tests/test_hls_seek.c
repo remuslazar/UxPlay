@@ -6,7 +6,9 @@
  * stream through the renderer as a client's video, scrubs it the way the
  * client's slider does, and checks the position the client is told next.
  * Then it scrubs the way the YouTube app does, which pauses the video first:
- * the video stays paused at the new position until the client resumes it. */
+ * the video stays paused at the new position until the client resumes it, and
+ * the playback info reports the landed scrub as playing once, which the app
+ * waits for before it sends its rate. */
 #define SCRUB_TO 2.5
 #define PAUSED_SCRUB_TO 1.0
 
@@ -33,6 +35,7 @@ static void test_audio_sink_init(TestAudioSink *sink) {
 static GMainLoop *loop;
 static enum { STARTING, SCRUBBED, PAUSED, RESUMED } step = STARTING;
 static gint64 step_at;
+static int playing_reports;
 static int result = 1;
 
 static void log_message(void *data, int level, const char *message) {
@@ -82,10 +85,13 @@ static gboolean poll_position(gpointer data) {
         next_step(PAUSED);
         break;
     case PAUSED:
-        /* still paused through the seek and the buffering after it */
-        if (elapsed >= 200 * G_TIME_SPAN_MILLISECOND && rate != 0.0f) {
-            g_printerr("Scrubbed while paused, playing at %.3f s\n", position);
-            return finish(1);
+        /* still paused through the seek and the buffering after it; one report says it plays, where it landed */
+        if (rate != 0.0f) {
+            g_print("Reported as playing at %.3f s\n", position);
+            if (++playing_reports > 1 || position < PAUSED_SCRUB_TO - 0.05 || position >= PAUSED_SCRUB_TO + 0.2) {
+                g_printerr("Scrubbed while paused, playing at %.3f s\n", position);
+                return finish(1);
+            }
         }
         if (elapsed < 1500 * G_TIME_SPAN_MILLISECOND) {
             break;
@@ -93,6 +99,10 @@ static gboolean poll_position(gpointer data) {
         g_print("Position after the paused scrub: %.3f s\n", position);
         if (position < PAUSED_SCRUB_TO - 0.05 || position >= PAUSED_SCRUB_TO + 0.2) {
             g_printerr("Scrubbed to %.3f s while paused, paused at %.3f s\n", PAUSED_SCRUB_TO, position);
+            return finish(1);
+        }
+        if (playing_reports != 1) {
+            g_printerr("The paused scrub was never reported as done\n");
             return finish(1);
         }
         video_renderer_resume();
