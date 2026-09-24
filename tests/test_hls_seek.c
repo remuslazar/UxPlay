@@ -4,8 +4,11 @@
 
 /* Invoked by test_hls_seek.py against its loopback HTTP server. Plays an HLS
  * stream through the renderer as a client's video, scrubs it the way the
- * client's slider does, and checks the position the client is told next. */
+ * client's slider does, and checks the position the client is told next.
+ * Then it scrubs the way the YouTube app does, which pauses the video first:
+ * the video stays paused at the new position until the client resumes it. */
 #define SCRUB_TO 2.5
+#define PAUSED_SCRUB_TO 1.0
 
 /* The HLS playbin plays audio through autoaudiosink: give it a sink that
  * needs no sound device and still keeps time. */
@@ -28,11 +31,23 @@ static void test_audio_sink_init(TestAudioSink *sink) {
 }
 
 static GMainLoop *loop;
-static gint64 scrubbed_at;
+static enum { STARTING, SCRUBBED, PAUSED, RESUMED } step = STARTING;
+static gint64 step_at;
 static int result = 1;
 
 static void log_message(void *data, int level, const char *message) {
     g_print("%s\n", message);
+}
+
+static void next_step(int next) {
+    step = next;
+    step_at = g_get_monotonic_time();
+}
+
+static gboolean finish(int code) {
+    result = code;
+    g_main_loop_quit(loop);
+    return G_SOURCE_REMOVE;
 }
 
 static gboolean poll_position(gpointer data) {
@@ -41,31 +56,65 @@ static gboolean poll_position(gpointer data) {
     bool buffer_empty, buffer_full;
     video_get_playback_info(&duration, &position, &seek_start, &seek_duration, &rate,
                             &buffer_empty, &buffer_full);
-    if (!scrubbed_at) {
+    gint64 elapsed = g_get_monotonic_time() - step_at;
+    switch (step) {
+    case STARTING:
         /* playing and seekable, as when the client's slider is dragged */
         if (rate == 1.0f && seek_duration > 0.0 && position >= 0.3) {
             g_print("Playing at %.3f s, scrubbing to %.3f s\n", position, SCRUB_TO);
             video_renderer_seek(SCRUB_TO);
-            scrubbed_at = g_get_monotonic_time();
+            next_step(SCRUBBED);
         }
-        return G_SOURCE_CONTINUE;
+        break;
+    case SCRUBBED:
+        /* the first position reported once playback goes on after the scrub */
+        if (elapsed < 300 * G_TIME_SPAN_MILLISECOND || rate != 1.0f || position < 0.0) {
+            break;
+        }
+        g_print("Position after the scrub: %.3f s\n", position);
+        if (position < SCRUB_TO - 0.05 || position >= SCRUB_TO + 1.0) {
+            g_printerr("Scrubbed to %.3f s, playing at %.3f s\n", SCRUB_TO, position);
+            return finish(1);
+        }
+        g_print("Pausing, scrubbing to %.3f s\n", PAUSED_SCRUB_TO);
+        video_renderer_pause();
+        video_renderer_seek(PAUSED_SCRUB_TO);
+        next_step(PAUSED);
+        break;
+    case PAUSED:
+        /* still paused through the seek and the buffering after it */
+        if (elapsed >= 200 * G_TIME_SPAN_MILLISECOND && rate != 0.0f) {
+            g_printerr("Scrubbed while paused, playing at %.3f s\n", position);
+            return finish(1);
+        }
+        if (elapsed < 1500 * G_TIME_SPAN_MILLISECOND) {
+            break;
+        }
+        g_print("Position after the paused scrub: %.3f s\n", position);
+        if (position < PAUSED_SCRUB_TO - 0.05 || position >= PAUSED_SCRUB_TO + 0.2) {
+            g_printerr("Scrubbed to %.3f s while paused, paused at %.3f s\n", PAUSED_SCRUB_TO, position);
+            return finish(1);
+        }
+        video_renderer_resume();
+        next_step(RESUMED);
+        break;
+    case RESUMED:
+        if (elapsed < 300 * G_TIME_SPAN_MILLISECOND || rate != 1.0f) {
+            break;
+        }
+        g_print("Playing again at %.3f s\n", position);
+        if (position < PAUSED_SCRUB_TO - 0.05 || position >= PAUSED_SCRUB_TO + 1.0) {
+            g_printerr("Resumed at %.3f s, playing at %.3f s\n", PAUSED_SCRUB_TO, position);
+            return finish(1);
+        }
+        return finish(0);
     }
-    /* the first position reported once playback goes on after the scrub */
-    if (g_get_monotonic_time() - scrubbed_at < 300 * G_TIME_SPAN_MILLISECOND || rate != 1.0f || position < 0.0) {
-        return G_SOURCE_CONTINUE;
-    }
-    g_print("Position after the scrub: %.3f s\n", position);
-    if (position >= SCRUB_TO - 0.05 && position < SCRUB_TO + 1.0) {
-        result = 0;
-    } else {
-        g_printerr("Scrubbed to %.3f s, playing at %.3f s\n", SCRUB_TO, position);
-    }
-    g_main_loop_quit(loop);
-    return G_SOURCE_REMOVE;
+    return G_SOURCE_CONTINUE;
 }
 
 static gboolean time_out(gpointer data) {
-    g_printerr("Timed out %s\n", scrubbed_at ? "after the scrub" : "before playback");
+    static const char *steps[] = {"before playback", "after the scrub", "while paused", "after the resume"};
+    g_printerr("Timed out %s\n", steps[step]);
     g_main_loop_quit(loop);
     return G_SOURCE_REMOVE;
 }

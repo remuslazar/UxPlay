@@ -1,4 +1,5 @@
-"""A scrub in HLS video lands where the client asked, with a subtitle rendition in one long segment."""
+"""A scrub in HLS video lands where the client asked, with a subtitle rendition in one long segment,
+and a scrub while paused leaves the video paused."""
 import functools
 import http.server
 import pathlib
