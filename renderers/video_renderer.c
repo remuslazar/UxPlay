@@ -207,7 +207,30 @@ void video_renderer_size(float *f_width_source, float *f_height_source, float *f
 }
 
 GstElement *make_video_sink(const char *videosink, const char *videosink_options) {
-    /* used to build a videosink for playbin, using the user-specified string "videosink" */ 
+    /* used to build a videosink for playbin, using the user-specified string "videosink" */
+
+    /* "-vs" may name a chain rather than one element, as in "videoconvert ! waylandsink". The option
+     * string then carries a "!" extension, which the appsrc pipelines below already place in their
+     * launch line; playbin needs an element, so the same chain becomes a bin with a ghosted sink pad.
+     * This lets a converter sit in front of a sink that cannot present what the decoder produces: a
+     * sink negotiating a format it can only refuse later leaves playbin with nothing to convert with.
+     * A string without "!" is unchanged — one element, with the properties set below. */
+    if (strchr(videosink_options, '!')) {
+        GError *error = NULL;
+        char *description = g_strconcat(videosink, videosink_options, NULL);
+        GstElement *video_sink = gst_parse_bin_from_description(description, TRUE, &error);
+        if (video_sink) {
+            gst_element_set_name(video_sink, "videosink");
+            g_print("playbin_videosink bin: \"%s\"\n", description);
+        } else {
+            logger_log(logger, LOGGER_ERR, "make_video_sink: \"%s\" is not a valid pipeline: %s",
+                       description, error ? error->message : "unknown parse error");
+        }
+        g_clear_error(&error);
+        g_free(description);
+        return video_sink;
+    }
+
     GstElement *video_sink = gst_element_factory_make(videosink, "videosink");
     if (!video_sink) {
         return NULL;
