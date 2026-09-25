@@ -19,9 +19,32 @@ UxPlay 1.74: An open\-source AirPlay mirroring (+ audio streaming) server:
 .IP
    n=1,2,.. format = H264/5, ALAC/AAC. Default fn="recording"
 .TP
-\fB\-hls\fR [v]  Support HTTP Live Streaming (HLS), YouTube app video only:
+\fB\-hls\fR [v]  Support AirPlay HTTP Live Streaming (HLS) video:
 .IP
    v = 2 or 3 (default 3) optionally selects video player version
+.TP
+\fB\-hls-select\fR [list]
+Select HLS codecs and limits: codec[@WIDTHxHEIGHT[pFPS]], e.g.
+avc1@1920x1080:vp09@1920x1080p30. Use four-character playlist codec IDs;
+a bare ID has no limits. Without pFPS, frame rate is unrestricted. FPS must be
+positive with at most three fractional digits (e.g. p29.97). Dimensions are
+required before pFPS; frame-rate-only entries are not supported. No argument
+or an empty string clears the selection. Invalid/duplicate entries are rejected.
+.IP
+The greatest eligible pixel count wins; list order breaks ties. Keep all eligible
+variants of that codec for bitrate adaptation, plus audio/subtitle renditions and
+explicitly audio-only variants. No eligible video means an error, not fallback.
+Unlisted codecs and missing codec metadata are excluded. Missing dimensions are
+eligible only for unbounded codecs and rank below known resolutions. Width and
+height limits apply as encoded, without rotating portrait frames. An FPS cap
+excludes regular video variants with missing, malformed or duplicate FRAME-RATE,
+even if playable. I-frame variants are exempt from FPS caps, but still follow
+codec and size limits. FPS caps do not change resolution-first ranking. This filters
+proxied YouTube masters and HLS masters fetched from direct URLs (e.g. Vimeo).
+GStreamer retains HTTP redirects, headers and relative URLs. Direct manifests
+are limited to 4 MiB. Non-HLS files, media playlists without variant choices,
+and screen mirroring are unchanged. No transcoding or hardware selection.
+Cap every codec for a strict size limit: other services offer H.264 above 1080p.
 .TP
 \fB\-lang\fR ... Ranked HLS language preferences ("fr:pt-BR:.."); " " = none
 .TP

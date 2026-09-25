@@ -23,6 +23,7 @@
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
 #include "video_renderer.h"
+#include "hls_selection.h"
 #include <gst/video/videooverlay.h>
 
 static uintptr_t external_window_handle = 0;
@@ -277,7 +278,8 @@ g_string_replace (GString     *string,
 
 void video_renderer_init(logger_t *render_logger, const char *server_name, videoflip_t videoflip[2], const char *parser, const char * rtp_pipeline,
                           const char *decoder, const char *converter, const char *videosink, const char *videosink_options, 
-                          bool initial_fullscreen, bool video_sync, bool h265_support, bool coverart_support, guint playbin_version, const char *uri) {
+                          bool initial_fullscreen, bool video_sync, bool h265_support, bool coverart_support, guint playbin_version, const char *uri,
+                          const hls_codec_t *hls_codecs, size_t hls_codec_count) {
     GError *error = NULL;
     GstCaps *caps = NULL;
     bool rtp = (bool) strlen(rtp_pipeline);
@@ -351,6 +353,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
             }
             logger_log(logger, LOGGER_INFO, "Will use GStreamer playbin version %u to play HLS streamed video", playbin_version);	    
             g_assert(renderer_type[i]->pipeline);
+            hls_selection_install(renderer_type[i]->pipeline, hls_codecs, hls_codec_count, logger);
             renderer_type[i]->codec = hls;
             /* if we are not using an autovideosink, build a videosink based on the string "videosink" */
             if (!auto_videosink) { 
