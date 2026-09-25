@@ -952,8 +952,8 @@ static void print_info (char *name) {
     printf("          n=1,2,.. format = H264/5, ALAC/AAC. Default fn=\"recording\"\n");
     printf("-hls [v]  Support AirPlay HTTP Live Streaming (HLS) video\n");
     printf("          v = 2 or 3 (default 3) optionally selects video player version\n");
-    printf("-hls-select [list] Select HLS codecs and size limits, e.g.\n");
-    printf("                  avc1@1920x1080:vp09@1920x1080 (default: unrestricted)\n");
+    printf("-hls-select [list] Select HLS codecs, size and fps limits, e.g.\n");
+    printf("                  avc1@1920x1080:vp09@1920x1080p30 (default: unrestricted)\n");
     printf("-lang ... Ranked HLS language preferences (\"fr:pt-BR:..\");\" \" = none\n");
     printf("-slang ...Ranked HLS subtitle language preferences (overrides -lang)\n");
     printf("-scrsv n  Screensaver override n: 0=off 1=on while displaying video 2=always on\n");
@@ -1817,7 +1817,7 @@ static void parse_arguments (int argc, char *argv[]) {
             const char *value = i < argc - 1 && *argv[i+1] != '-' ? argv[++i] : "";
             free(hls_codecs);
             if (!hls_select_parse(value, &hls_codecs, &hls_codec_count)) {
-                fprintf(stderr, "-hls-select expects codec[@WIDTHxHEIGHT] entries separated by colons, e.g. avc1@1920x1080:vp09@1920x1080\n");
+                fprintf(stderr, "-hls-select expects codec[@WIDTHxHEIGHT[pFPS]] entries separated by colons, e.g. avc1@1920x1080:vp09@1920x1080p30\n");
                 exit(1);
             }
         } else if (arg == "-lang") {

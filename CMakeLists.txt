@@ -116,8 +116,11 @@ if(BUILD_TESTING)
   target_include_directories(test_master_playlist_pruning PRIVATE lib)
   add_test(NAME master_playlist_pruning COMMAND test_master_playlist_pruning)
   add_test(NAME hls_select_cli COMMAND uxplay -hls-select avc1@1920x1080:vp09@1920x1080 -v)
+  add_test(NAME hls_select_fps_cli COMMAND uxplay -hls-select avc1@1920x1080p30:vp09@1920x1080p29.97 -v)
   add_test(NAME hls_select_reset COMMAND uxplay -hls-select avc1 -hls-select -v)
-  foreach(value IN ITEMS vp9 avc1@0x1080 avc1:avc1 avc1@1920x1080junk avc1:)
+  foreach(value IN ITEMS vp9 avc1@0x1080 avc1:avc1 avc1@1920x1080junk avc1:
+      avc1@1920x1080p avc1@1920x1080p0 avc1@1920x1080p30junk avc1@1920x1080p30.
+      avc1@1920x1080p1.2345 avc1@1920x1080px avc1@p30 avc1@1920x1080p999999999999999999999)
     add_test(NAME "hls_select_invalid_${value}" COMMAND uxplay -hls-select "${value}" -v)
     set_tests_properties("hls_select_invalid_${value}" PROPERTIES WILL_FAIL TRUE)
   endforeach()
