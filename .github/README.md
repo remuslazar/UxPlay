@@ -20,15 +20,17 @@ questions and issues that are not about these changes belong
   [#1](https://github.com/remuslazar/UxPlay/pull/1).
 - A paused HLS video stays paused when it is scrubbed:
   [#2](https://github.com/remuslazar/UxPlay/pull/2).
+- The HLS language filter frees the default language it allocates for every
+  YouTube master playlist: [#7](https://github.com/remuslazar/UxPlay/pull/7).
 
 **Options**
 
 - `-hls-select codec[@WIDTHxHEIGHT[pFPS]]:…` picks HLS variants by codec,
   resolution and frame rate, for the YouTube app and for master playlists
-  GStreamer fetches itself (Vimeo, Safari); see [README.md](../README.md):
+  GStreamer fetches itself (Vimeo, Safari):
   [#5](https://github.com/remuslazar/UxPlay/pull/5). Upstream is replacing it
-  with `-rpi` and `-custom`, and this branch will follow once those are in
-  upstream `master`.
+  with `-rpi` and `-custom`; this branch follows once those are in its
+  `master`.
 - `-vs` can name a chain for HLS video, such as
   `-vs "videoconvert ! waylandsink"`:
   [#3](https://github.com/remuslazar/UxPlay/pull/3).
