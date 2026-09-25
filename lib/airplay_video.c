@@ -311,6 +311,8 @@ static char * list_languages(const char *master_playlist, int n_slice, slice_t *
             memcpy(pos, lang, len);
             if (pos == strstr(list, pos)) {
                 if (default_choice) {
+                    /* a later DEFAULT=YES (another group) replaces an earlier one */
+                    free(*default_lang);
                     *default_lang = calloc(len + 1, sizeof(char));  /* must be freed*/
                     memcpy(*default_lang, lang, len);
                 }
@@ -622,6 +624,12 @@ static slice_t *master_playlist_slicer(const char *master_playlist, airplay_vide
         }
 
         available = list_languages(master_playlist, count, slice, type, &n_items, &default_lang, autoselect);
+        if (!n_items) {
+            /* every case below skips this iteration; the list may still be allocated,
+               e.g. when all its entries are AUTOSELECT=NO */
+            free(available);
+            free(default_lang);
+        }
         switch (iter) {
         case 0:
             if (n_items) {
@@ -695,6 +703,7 @@ static slice_t *master_playlist_slicer(const char *master_playlist, airplay_vide
         }
         free(available_list);
         free(available);
+        free(default_lang);  /* selected may point here; it is not used after this iteration */
     }
     
     if (n_lang_requested) {
