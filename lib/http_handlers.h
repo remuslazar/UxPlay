@@ -1003,7 +1003,9 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     plist_from_bin(request_data, request_datalen, &req_root_node);
 
     plist_t req_uuid_node = plist_dict_get_item(req_root_node, "uuid");
-    if (!req_uuid_node) {
+    /* require a string: plist_get_string_val leaves the pointer NULL for any
+     * other type, and the strlen()/strcmp() below then crash on NULL. */
+    if (!PLIST_IS_STRING(req_uuid_node)) {
        goto play_error;
     }
     char* playback_uuid = NULL;
@@ -1066,7 +1068,9 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
 #endif
 	   
     plist_t req_content_location_node = plist_dict_get_item(req_root_node, "Content-Location");
-    if (!req_content_location_node) {
+    /* require a string, else playback_location stays NULL and the strstr()/
+     * strncmp() below crash. */
+    if (!PLIST_IS_STRING(req_content_location_node)) {
         goto play_error;
     } else {
         plist_get_string_val(req_content_location_node, &playback_location);
@@ -1093,7 +1097,9 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
                                       start_position_seconds);
     } else if (uri_suffix) {
         plist_t req_client_proc_name_node = plist_dict_get_item(req_root_node, "clientProcName");
-        if (req_client_proc_name_node) {
+        /* require a string: a non-string value leaves client_proc_name NULL and
+         * the strstr() below crashes. */
+        if (PLIST_IS_STRING(req_client_proc_name_node)) {
             plist_get_string_val(req_client_proc_name_node, &client_proc_name);
             if (!strstr(supported_hls_proc_names, client_proc_name)){
                 logger_log(raop->logger, LOGGER_WARNING, "Unsupported m3u8 HLS streaming format: clientProcName %s not found in supported list: %s",
