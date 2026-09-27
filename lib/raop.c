@@ -320,7 +320,7 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
                 }
 
                 raop_ntp_t *raop_ntp = raop_conn->raop_ntp;
-                if (raop_rtp) {
+                if (raop_ntp) {
                     logger_log(raop->logger, LOGGER_DEBUG, "New AirPlay connection: stopping NTP time"
                                " service on RAOP connection %p", raop_conn);
                     raop_ntp_stop(raop_ntp);
