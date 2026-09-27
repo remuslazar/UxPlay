@@ -75,7 +75,7 @@
 #endif
 
 
-#define VERSION "1.74"
+#define VERSION "1.74-ha"
 
 #define SECOND_IN_USECS 1000000
 #define SECOND_IN_NSECS 1000000000UL
