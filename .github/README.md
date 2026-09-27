@@ -1,59 +1,44 @@
-# UxPlay, ha-display branch
+# UxPlay for Home Assistant displays
 
-A fork of [FDH2/UxPlay](https://github.com/FDH2/UxPlay), kept for ha-display, a
-Raspberry Pi display project that is not public yet. There UxPlay is the AirPlay
-receiver for the YouTube app, Safari, Vimeo and screen mirroring.
+A fork of [FDH2/UxPlay](https://github.com/FDH2/UxPlay), the AirPlay receiver,
+kept for ha-display, a Raspberry Pi display project that is not public yet.
+UxPlay is its AirPlay receiver for the YouTube app, Safari, Vimeo and screen
+mirroring, running around the clock on a Pi 4 and a Pi 5. Everything below was
+made for that, measured on those boards and runs there every day.
 
-The default branch, `ha-display`, is upstream's `master` plus the changes below,
-and nothing else. UxPlay's own documentation is in [README.md](../README.md);
-questions and issues that are not about these changes belong
+UxPlay's own documentation is in [README.md](../README.md). Questions and issues
+that are not about the changes below belong
 [upstream](https://github.com/FDH2/UxPlay/issues).
 
-## What this branch adds to upstream
+## What this fork adds
 
-**Always on**
+| Change | Kind | Details | Upstream |
+| --- | --- | --- | --- |
+| Seeking and resuming past 35:47 in an HLS video land where asked | always on | [FDH2/UxPlay#576](https://github.com/FDH2/UxPlay/pull/576) | merged, removed again on 2026-09-27 |
+| Plays at the volume announced to the client, and keeps it across videos | always on | [FDH2/UxPlay#577](https://github.com/FDH2/UxPlay/pull/577) | merged, removed again on 2026-09-27 |
+| Plays the audio track picked in the YouTube app, also when it is changed during the video | always on | [#6](https://github.com/remuslazar/UxPlay/pull/6) | merged in parts, removed again on 2026-09-27 |
+| HLS seeks land where asked, also in a video with subtitles | always on | [#1](https://github.com/remuslazar/UxPlay/pull/1) | not upstream |
+| A paused HLS video stays paused when it is scrubbed | always on | [#2](https://github.com/remuslazar/UxPlay/pull/2) | not upstream |
+| The HLS language filter no longer leaks memory per playlist | always on | [#7](https://github.com/remuslazar/UxPlay/pull/7) | fixed upstream in its own way |
+| `-hls-select` picks HLS variants by codec, resolution and frame rate, also for Vimeo and Safari | option | [#5](https://github.com/remuslazar/UxPlay/pull/5) | upstream has its own filter (`-rpi`, `-custom`) |
+| `-vs` can name a chain for HLS video, e.g. `videoconvert ! waylandsink` | option | [#3](https://github.com/remuslazar/UxPlay/pull/3) | not upstream |
+| A CTest suite in `tests/` (HLS selection, playback, seeking), built by default | build | [#5](https://github.com/remuslazar/UxPlay/pull/5) | upstream has no tests |
 
-- The audio track picked in the YouTube app plays, also when it is changed
-  during the video: [#6](https://github.com/remuslazar/UxPlay/pull/6), upstream
-  [FDH2/UxPlay#579](https://github.com/FDH2/UxPlay/pull/579).
-- HLS seeks land where they were asked to, also in a video with subtitles:
-  [#1](https://github.com/remuslazar/UxPlay/pull/1).
-- A paused HLS video stays paused when it is scrubbed:
-  [#2](https://github.com/remuslazar/UxPlay/pull/2).
-- The HLS language filter frees the default language it allocates for every
-  YouTube master playlist: [#7](https://github.com/remuslazar/UxPlay/pull/7).
+Build it like upstream (see [README.md](../README.md)); `-DBUILD_TESTING=OFF`
+leaves the tests out.
 
-**Options**
+## Branches
 
-- `-hls-select codec[@WIDTHxHEIGHT[pFPS]]:…` picks HLS variants by codec,
-  resolution and frame rate, for the YouTube app and for master playlists
-  GStreamer fetches itself (Vimeo, Safari):
-  [#5](https://github.com/remuslazar/UxPlay/pull/5). Upstream is replacing it
-  with `-rpi` and `-custom`; this branch follows once those are in its
-  `master`.
-- `-vs` can name a chain for HLS video, such as
-  `-vs "videoconvert ! waylandsink"`:
-  [#3](https://github.com/remuslazar/UxPlay/pull/3).
+- **`master`** (default): the stable state. Every change above, each merged
+  after it ran on a display.
+- **`ha-display`**: what the displays run. That's `master` plus changes still
+  under test, whose [pull
+  requests](https://github.com/remuslazar/UxPlay/pulls?q=is%3Apr+is%3Aopen+base%3Amaster)
+  are open against `master`.
+- **`upstream`**: an exact copy of FDH2/UxPlay's `master`. Upstream fixes are
+  taken over one by one, like any other change.
+- Every build a display runs is tagged `ha-display/<version>-<commit>`, so it
+  stays downloadable.
 
-**Build**
-
-- A CTest suite in `tests/`, built by default; `-DBUILD_TESTING=OFF` leaves it
-  out. The playback tests need Python 3.
-
-## How the branches work
-
-- `master` is an exact copy of upstream `master` and is never committed to:
-  `gh repo sync remuslazar/UxPlay -b master`.
-- Each change is a branch from `master` with a draft pull request here against
-  `master`, never merged, which stays open while `ha-display` carries the
-  change and upstream does not. The [open pull
-  requests](https://github.com/remuslazar/UxPlay/pulls?q=is%3Apr+is%3Aopen+base%3Amaster) are the list above.
-  When upstream merges the same commits, syncing `master` marks the pull request
-  as merged; otherwise it is closed by hand.
-- `ha-display` merges each change branch (`--no-ff`) and upstream `master`.
-- Every commit ha-display pins is tagged
-  `ha-display/<version>-<first 12 digits of the commit>`, so a pinned build
-  stays downloadable whatever happens to the branches.
-
-Pull requests from this fork to upstream:
-[FDH2/UxPlay, author remuslazar](https://github.com/FDH2/UxPlay/pulls?q=is%3Apr+author%3Aremuslazar).
+Upstream is welcome to take any of these changes; ask, and I'll prepare a small
+pull request against its `master`.
