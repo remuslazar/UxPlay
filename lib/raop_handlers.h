@@ -356,8 +356,17 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         memset(proof, 0, sizeof(proof));
         uint64_t client_pk_len = 0;
         uint64_t client_proof_len = 0;
-        plist_get_data_val(req_pk_node, &client_pk, &client_pk_len); 
+        plist_get_data_val(req_pk_node, &client_pk, &client_pk_len);
         plist_get_data_val(req_proof_node, &client_proof, &client_proof_len);
+        /* the memcpy below reads sizeof(proof) bytes from client_proof; a shorter
+         * blob was read past its allocation. */
+        if (client_proof_len < sizeof(proof)) {
+            logger_log(raop->logger, LOGGER_ERR, "pair-setup-pin: proof too short (%llu bytes)", client_proof_len);
+            free(client_proof);
+            free(client_pk);
+            plist_free(req_root_node);
+            goto authentication_failed;
+        }
         if (logger_debug) {
             char *str = utils_data_to_string((const unsigned char *) client_proof, client_proof_len, 20);
             logger_log(raop->logger, LOGGER_DEBUG, "client SRP6a proof <M> :\n%s", str);	    
@@ -394,8 +403,18 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         unsigned char epk[ED25519_KEY_SIZE];
         unsigned char authtag[GCM_AUTHTAG_SIZE];
         int ret = 0;
-        plist_get_data_val(req_epk_node, &client_epk, &client_epk_len); 
+        plist_get_data_val(req_epk_node, &client_epk, &client_epk_len);
         plist_get_data_val(req_authtag_node, &client_authtag, &client_authtag_len);
+        /* the memcpys below read fixed sizes from these blobs; a shorter blob
+         * was read past its allocation. */
+        if (client_epk_len < ED25519_KEY_SIZE || client_authtag_len < GCM_AUTHTAG_SIZE) {
+            logger_log(raop->logger, LOGGER_ERR, "pair-setup-pin: epk/authtag too short (%llu/%llu bytes)",
+                       client_epk_len, client_authtag_len);
+            free(client_authtag);
+            free(client_epk);
+            plist_free(req_root_node);
+            goto authentication_failed;
+        }
 
         if (logger_debug) {
             char *str = utils_data_to_string((const unsigned char *) client_epk, client_epk_len, 16);
@@ -783,8 +802,14 @@ raop_handler_setup(raop_conn_t *conn,
         }
 
         plist_get_data_val(req_eiv_node, &eiv, &eiv_len);
-        memcpy(aesiv, eiv, 16);
-        free(eiv);	
+        /* eiv_len is the client-declared length of the eiv data; the memcpy
+         * consumes 16 bytes, so a shorter blob was read past its allocation. */
+        if (eiv_len >= 16) {
+            memcpy(aesiv, eiv, 16);
+        } else {
+            logger_log(raop->logger, LOGGER_ERR, "SETUP eiv too short (%llu bytes), ignoring", eiv_len);
+        }
+        free(eiv);
         logger_log(raop->logger, LOGGER_DEBUG, "eiv_len = %llu", eiv_len);
         if (logger_debug) {
             char* str = utils_data_to_string(aesiv, 16, 16);
@@ -795,12 +820,19 @@ raop_handler_setup(raop_conn_t *conn,
         char* ekey = NULL;
         uint64_t ekey_len = 0;
         plist_get_data_val(req_ekey_node, &ekey, &ekey_len);
-        memcpy(eaeskey,ekey,72);
+        /* ekey_len is client-declared; the memcpy consumes 72 bytes, so a
+         * shorter blob was read past its allocation. */
+        if (ekey_len >= 72) {
+            memcpy(eaeskey,ekey,72);
+        } else {
+            logger_log(raop->logger, LOGGER_ERR, "SETUP ekey too short (%llu bytes), ignoring", ekey_len);
+        }
         free(ekey);
         logger_log(raop->logger, LOGGER_DEBUG, "ekey_len = %llu", ekey_len);
         // eaeskey is 72 bytes, aeskey is 16 bytes
         if (logger_debug) {
-            char *str = utils_data_to_string((unsigned char *) eaeskey, ekey_len, 16);
+            /* only 72 bytes were ever copied into eaeskey; never read past it */
+            char *str = utils_data_to_string((unsigned char *) eaeskey, ekey_len > 72 ? 72 : (int) ekey_len, 16);
             logger_log(raop->logger, LOGGER_DEBUG, "ekey:\n%s", str);
             free (str);
         }
