@@ -886,9 +886,19 @@ static char *prune_master_playlist(char *master_playlist, const slice_t *slice,
         /* In-place compaction can only shrink: the video path marks no
          * AUDIO/SUBTITLES slices, so no LANGUAGE attributes are added. */
         assert(!in_place || added == 0);
+        /* The added/removed size pass assumes each DEFAULT=/AUTOSELECT= token it
+         * removes is followed by a comma, but the write loop below only skips a
+         * following comma when one is actually present. A token that is the last
+         * attribute on its line (no trailing comma, e.g. "...,AUTOSELECT=YES\n")
+         * therefore made the write 1 byte longer than newlen counted -- a heap
+         * overflow. newlen is thus only a lower bound; allocate a guaranteed-safe
+         * upper bound instead: every kept AUDIO/SUBTITLES line appends at most
+         * ",DEFAULT=YES,AUTOSELECT=YES" plus its newline, and deletions only
+         * shrink, so strlen + n_slice*that length can never be exceeded. */
         size_t newlen = strlen(master_playlist) + added  - removed;
+        size_t cap = strlen(master_playlist) + n_slice * (sizeof(",DEFAULT=YES,AUTOSELECT=YES") - 1);
         if (!in_place) {
-            new_master_playlist = (char *) calloc(newlen + 1, sizeof(char));
+            new_master_playlist = (char *) calloc(cap + 1, sizeof(char));
         }
         char *new = new_master_playlist;
         for (size_t i = 0; i < n_slice; i++) {
@@ -949,7 +959,7 @@ static char *prune_master_playlist(char *master_playlist, const slice_t *slice,
                 new += len;
             }
         }
-        assert(new == new_master_playlist + newlen);
+        assert(new >= new_master_playlist + newlen && new <= new_master_playlist + cap);
         *new = '\0';
         if (!in_place) free(master_playlist);
     }
