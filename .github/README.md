@@ -19,6 +19,7 @@ that are not about the changes below belong
 | HLS seeks land where asked, also in a video with subtitles | fix | [#1](https://github.com/remuslazar/UxPlay/pull/1) | not upstream |
 | A paused HLS video stays paused when it is scrubbed | fix | [#2](https://github.com/remuslazar/UxPlay/pull/2) | not upstream |
 | The HLS language filter no longer leaks memory per playlist | fix | [#7](https://github.com/remuslazar/UxPlay/pull/7) | fixed upstream in its own way |
+| Screen mirroring no longer leaks memory (about 12 MB per hour of mirroring) | fix | [#12](https://github.com/remuslazar/UxPlay/pull/12) | fixed upstream (FDH2/UxPlay#585), taken over unchanged |
 | Plays the audio track picked in the YouTube app, also when it is changed during the video | feature | [#6](https://github.com/remuslazar/UxPlay/pull/6) | merged in parts, removed again on 2026-09-27 |
 | `-hls-select` picks HLS variants by codec, resolution and frame rate, also for Vimeo and Safari | new option | [#5](https://github.com/remuslazar/UxPlay/pull/5) | upstream has its own filter (`-rpi`, `-custom`) |
 | `-vs` can name a chain for HLS video, e.g. `videoconvert ! waylandsink` | extended option | [#3](https://github.com/remuslazar/UxPlay/pull/3) | not upstream |
