@@ -22,6 +22,7 @@ that are not about the changes below belong
 | Plays the audio track picked in the YouTube app, also when it is changed during the video | feature | [#6](https://github.com/remuslazar/UxPlay/pull/6) | merged in parts, removed again on 2026-09-27 |
 | `-hls-select` picks HLS variants by codec, resolution and frame rate, also for Vimeo and Safari | new option | [#5](https://github.com/remuslazar/UxPlay/pull/5) | upstream has its own filter (`-rpi`, `-custom`) |
 | `-vs` can name a chain for HLS video, e.g. `videoconvert ! waylandsink` | extended option | [#3](https://github.com/remuslazar/UxPlay/pull/3) | not upstream |
+| Builds report their version as `1.74-ha` (`uxplay -v`, the log, the man page), so they are not taken for upstream's 1.74 | build | [#10](https://github.com/remuslazar/UxPlay/pull/10) | upstream reports 1.74 |
 | A CTest suite in `tests/` (HLS selection, playback, seeking), built by default | build | [#5](https://github.com/remuslazar/UxPlay/pull/5) | upstream has no tests |
 
 Fixes and features are always on; an option acts only when it is given.
