@@ -46,6 +46,13 @@ struct http_request_s {
     const char *feed_end;
 };
 
+/* Caps applied while parsing, before the request is complete: an
+ * unauthenticated client must not be able to make us realloc without bound.
+ * The largest legitimate bodies are cover-art images and HLS playlists, well
+ * under this; a single header line is always small. */
+#define MAX_REQUEST_BODY_LEN (8 * 1024 * 1024)
+#define MAX_HEADER_ACCUM_LEN (64 * 1024)
+
 static int
 on_url(llhttp_t *parser, const char *at, size_t length)
 {
@@ -91,6 +98,15 @@ on_header_field(llhttp_t *parser, const char *at, size_t length)
         request->headers[request->headers_index+1] = NULL;
     }
 
+    /* Cap accumulated length so a client cannot grow one header without bound. */
+    {
+        size_t have = request->headers[request->headers_index] ?
+                      strlen(request->headers[request->headers_index]) : 0;
+        if (have + length > (size_t) MAX_HEADER_ACCUM_LEN) {
+            return HPE_USER;
+        }
+    }
+
     /* Allocate space in the current header string */
     if (request->headers[request->headers_index] == NULL) {
         request->headers[request->headers_index] = calloc(1, length + 1);
@@ -116,6 +132,15 @@ on_header_value(llhttp_t *parser, const char *at, size_t length)
         request->headers_index++;
     }
 
+    /* Cap accumulated length so a client cannot grow one header without bound. */
+    {
+        size_t have = request->headers[request->headers_index] ?
+                      strlen(request->headers[request->headers_index]) : 0;
+        if (have + length > (size_t) MAX_HEADER_ACCUM_LEN) {
+            return HPE_USER;
+        }
+    }
+
     /* Allocate space in the current header string */
     if (request->headers[request->headers_index] == NULL) {
         request->headers[request->headers_index] = calloc(1, length + 1);
@@ -135,6 +160,13 @@ static int
 on_body(llhttp_t *parser, const char *at, size_t length)
 {
     http_request_t *request = parser->data;
+
+    /* Stop an unauthenticated client from growing this buffer without bound
+     * (memory-exhaustion DoS); also avoids the int overflow of datalen+length. */
+    if (length > (size_t) MAX_REQUEST_BODY_LEN ||
+        (size_t) request->datalen + length > (size_t) MAX_REQUEST_BODY_LEN) {
+        return HPE_USER;
+    }
 
     request->data = realloc(request->data, request->datalen + length);
     assert(request->data);
