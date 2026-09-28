@@ -202,7 +202,7 @@ static guint missed_feedback_limit = MISSED_FEEDBACK_LIMIT;
 static guint missed_feedback = 0;
 static guint playbin_version = DEFAULT_PLAYBIN_VERSION;
 static bool reset_httpd = false;
-/* the HLS player is to go, its client having left: the main loop replaces it by the mirror renderer */
+/* the HLS player is to go, its client having left or mirroring starting: the main loop replaces it by the mirror renderer */
 static bool end_hls_player = false;
 static bool monitor_progress = false;
 static uint32_t rtptime = 0;
@@ -2223,6 +2223,18 @@ static bool check_blocked_client(char *deviceid) {
 
 extern "C" void video_reset(void *cls, reset_type_t type) {
     switch (type) {
+    case RESET_TYPE_HLS_TO_RTP:
+        /* SETUP of mirror video: an HLS player still in place (its client never ended the video) must not
+           get the mirror stream (video_renderer_choose_codec); wait for the main loop to replace it */
+        LOGD("video_reset: type = HLS_to_RTP");
+        raop_destroy_airplay_video(raop, -1);
+        if (use_video && video_renderer_is_hls()) {
+            end_hls_player = true;
+            for (int i = 0; i < 40 && end_hls_player; i++) {
+                g_usleep(50000);
+            }
+        }
+        return;
     case RESET_TYPE_NOHOLD:
         LOGD("video_reset: type = NoHold");
         if (hls_support) {
