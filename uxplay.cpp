@@ -153,6 +153,7 @@ static bool suppress_packet_debug_data = false;
 static int log_level = LOGGER_INFO;
 static bool bt709_fix = false;
 static bool srgb_fix = DEFAULT_SRGB_FIX;
+static bool video_pipeline_chosen = false;   /* -vp, -vd, -vc, -avdec, -v4l2, -bt709 or -srgb was given */
 static int nohold = 0;
 static bool nofreeze = false;
 static unsigned short raop_port;
@@ -1002,6 +1003,9 @@ static void print_info (char *name) {
     printf("          Writes output to \"fn.N.mp4\"\n");
     printf("-v4l2     Use Video4Linux2 for GPU hardware h264 decoding\n");
     printf("-bt709    Sometimes needed for Raspberry Pi models using Video4Linux2 \n");
+    printf("          Default (with \"-srgb no\") for h264 mirroring if v4l2h264dec\n");
+    printf("          exists (R Pi 4B and earlier), unless -bt709, -srgb, -vp, -vd,\n");
+    printf("          -vc, -v4l2 or -avdec is given\n");
     printf("-srgb     Display \"Full range\" [0-255] color, not \"Limited Range\"[16-235]\n");
     printf("          This is a workaround for a GStreamer problem, until it is fixed\n");
     printf("-srgb no  Disable srgb option (use when enabled by default: Linux, *BSD)\n");
@@ -1431,14 +1435,17 @@ static void parse_arguments (int argc, char *argv[]) {
             if (!option_has_value(i, argc, arg, argv[i+1])) exit(1);
             video_parser.erase();
             video_parser.append(argv[++i]);
+            video_pipeline_chosen = true;
         } else if (arg == "-vd") {
             if (!option_has_value(i, argc, arg, argv[i+1])) exit(1);
             video_decoder.erase();
             video_decoder.append(argv[++i]);
+            video_pipeline_chosen = true;
         } else if (arg == "-vc") {
             if (!option_has_value(i, argc, arg, argv[i+1])) exit(1);
             video_converter.erase();
             video_converter.append(argv[++i]);
+            video_pipeline_chosen = true;
         } else if (arg == "-vs") {
             if (!option_has_value(i, argc, arg, argv[i+1])) exit(1);
             videosink.erase();
@@ -1473,11 +1480,13 @@ static void parse_arguments (int argc, char *argv[]) {
             video_decoder = "avdec_h264";
             video_converter.erase();
             video_converter = "videoconvert";
+            video_pipeline_chosen = true;
         } else if (arg == "-v4l2") {
             video_decoder.erase();
             video_decoder = "v4l2h264dec";
             video_converter.erase();
             video_converter = "v4l2convert";
+            video_pipeline_chosen = true;
         } else if (arg == "-rpi" || arg == "-rpifb" || arg == "-rpigl" || arg == "-rpiwl") {
             fprintf(stderr,"*** -rpi* options do not apply to Raspberry Pi model 5, and have been removed\n");
             fprintf(stderr,"     For models 3 and 4, use their equivalents, if needed:\n");
@@ -1628,8 +1637,10 @@ static void parse_arguments (int argc, char *argv[]) {
             }
         } else if (arg == "-bt709") {
             bt709_fix = true;
+            video_pipeline_chosen = true;
         } else if (arg == "-srgb") {
             srgb_fix = true;
+            video_pipeline_chosen = true;
 	    if (i <  argc - 1) {
                 if (strlen(argv[i+1]) == 2 && strncmp(argv[i+1], "no", 2) == 0) {
                     srgb_fix = false;
@@ -3212,17 +3223,6 @@ int main (int argc, char *argv[]) {
         }
     } 
 
-    if (bt709_fix && use_video) {
-        video_parser.append(" ! ");
-        video_parser.append(BT709_FIX);
-    }
-
-    if (srgb_fix && use_video) {
-        std::string option = video_converter;
-        video_converter.append(SRGB_FIX);
-        video_converter.append(option);
-    }
-    
     if (pin_pw == 1 && registration_list) {
         if (pairing_register == "") {
             const char * homedir = get_homedir();
@@ -3277,6 +3277,27 @@ int main (int argc, char *argv[]) {
     if (!gstreamer_init()) {
         LOGE ("stopping");
         exit (1);
+    }
+
+    if (use_video && !video_pipeline_chosen && rtp_pipeline.empty() && video_renderer_v4l2_h264_decoder_found()) {
+        /* v4l2h264dec rejects the colorimetry of mirrored h264 video (1:3:7:1), and the software decoder decodebin
+         * then chooses cannot keep up with the -srgb conversion on a Raspberry Pi: give the h264 pipeline (only)
+         * what "-bt709 -srgb no" would */
+        std::string h264_parser = video_parser + " ! " + BT709_FIX;
+        video_renderer_set_h264_pipeline(h264_parser.c_str(), video_converter.c_str());
+        LOGI("v4l2h264dec found: h264 screen mirroring will use \"-bt709 -srgb no\" to decode in hardware"
+             " (options -bt709, -srgb, -vp, -vd, -vc, -v4l2, -avdec turn this off)");
+    }
+
+    if (bt709_fix && use_video) {
+        video_parser.append(" ! ");
+        video_parser.append(BT709_FIX);
+    }
+
+    if (srgb_fix && use_video) {
+        std::string option = video_converter;
+        video_converter.append(SRGB_FIX);
+        video_converter.append(option);
     }
 
     render_logger = logger_init();
