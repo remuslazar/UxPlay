@@ -1465,6 +1465,10 @@ char *adjust_master_playlist (char *fcup_response_data, int fcup_response_datale
     char *first = fcup_response_data;
     char *new = new_master;
     char *last = strstr(first, uri_prefix);
+    if (!last) {
+        /* no uri to adjust: the loop below copies nothing */
+        memcpy(new, first, fcup_response_datalen);
+    }
     counter  = 0;
     while (last != NULL) {
         counter++;

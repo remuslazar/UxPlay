@@ -221,7 +221,7 @@ http_handler_scrub(raop_conn_t *conn, http_request_t *request, http_response_t *
     const char *url = http_request_get_url(request);
     const char *data = strstr(url, "?");
     float scrub_position = 0.0f;
-    if (data) {
+    if (data && strchr(data, '=')) {
         data++;
         const char *position = strstr(data, "=") + 1;
         char *end = NULL;
@@ -252,7 +252,7 @@ http_handler_rate(raop_conn_t *conn, http_request_t *request, http_response_t *r
     const char *url = http_request_get_url(request);
     const char *data = strstr(url, "?");
     float rate_value = 0.0f;
-    if (data) {
+    if (data && strchr(data, '=')) {
         data++;
         const char *rate = strstr(data, "=") + 1;
         char *end = NULL;
@@ -451,7 +451,7 @@ http_handler_fpsetup2(raop_conn_t *conn, http_request_t *request, http_response_
     int req_datalen = 0;
     const unsigned char *req_data = (unsigned char *) http_request_get_data(request, &req_datalen);
     logger_log(raop->logger, LOGGER_ERR, "only FairPlay version 0x03 is implemented, version is 0x%2.2x",
-               req_data[4]);
+               req_datalen > 4 ? req_data[4] : 0);
     http_response_init(response, "HTTP/1.1", 421, "Misdirected Request");
 }
 
@@ -883,6 +883,12 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         if (ptr) {
             /* this is a master playlist */
             const char *uri_prefix = get_uri_prefix(airplay_video);
+            if (!uri_prefix) {
+                /* no master playlist was requested: the video plays from an http(s) URL */
+                logger_log(raop->logger, LOGGER_ERR, "unexpected master playlist %s", fcup_response_url);
+                free(playlist);
+                goto post_action_error;
+            }
             char ** uri_list = NULL;
             int num_uri = 0;
             char *uri_local_prefix = get_uri_local_prefix(airplay_video);
