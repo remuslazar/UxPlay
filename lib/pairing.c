@@ -317,6 +317,13 @@ pairing_digest_verify(const char *method, const char * authorization, const char
     }
     response = get_token(&cursor, "response", '\"', '\"');
 
+    /* all of these come from the client's Authorization header and were passed to
+     * strlen()/strcmp() unchecked: a missing field is a failed authentication */
+    if (!username || !realm || !nonce || !uri || !response || (qop && (!nc || !cnonce))) {
+        free(sentence);
+        return false;
+    }
+
 #ifdef test_digest
     printf("username: [%s]  realm: [%s]\n", username, realm);
     printf("nonce: [%s]\n", nonce);

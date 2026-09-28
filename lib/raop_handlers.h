@@ -680,8 +680,8 @@ raop_handler_setup(raop_conn_t *conn,
             const char *authorization = NULL;
             authorization = http_request_get_header(request, "Authorization");
             if (!authorization) {
-                // if random_pw is set, but client has changed, unset it 
-                if (raop->random_pw && strncmp(raop->random_pw + pin_len + 1,  deviceID, 17)) {
+                // if random_pw is set, but client has changed (or sent no deviceID), unset it 
+                if (raop->random_pw && (!deviceID || strncmp(raop->random_pw + pin_len + 1,  deviceID, 17))) {
                     free(raop->random_pw);
                     raop->random_pw = NULL;
                 }
@@ -706,7 +706,7 @@ raop_handler_setup(raop_conn_t *conn,
                     char *pin = raop->random_pw;
                     snprintf(pin, pin_len + 1, "%04u", pin_4 % 10000);
                     pin[pin_len] = '\0';
-                    snprintf(pin + pin_len + 1, 18, "%s", deviceID);
+                    snprintf(pin + pin_len + 1, 18, "%s", deviceID ? deviceID : "");
                 } else {
                     logger_log(raop->logger, LOGGER_ERR, "Failed to allocate raop->random_pw");
                 }
@@ -726,10 +726,14 @@ raop_handler_setup(raop_conn_t *conn,
                 char nonce_string[33] = { '\0' };
                 //bool stale = false;  //not implemented
                 if (len && authorization) {
-                    const char *ptr = strstr(authorization, "nonce=\"") +  strlen("nonce=\"");
-                    strncpy(nonce_string, ptr, 32);
-                    const char *method = http_request_get_method(request);
-                    conn->authenticated = pairing_digest_verify(method, authorization, password);
+                    /* a header without nonce="..." made this NULL + 7 (a pre-auth remote
+                     * crash); it is a failed authentication */
+                    const char *ptr = strstr(authorization, "nonce=\"");
+                    if (ptr) {
+                        strncpy(nonce_string, ptr + strlen("nonce=\""), 32);
+                        const char *method = http_request_get_method(request);
+                        conn->authenticated = pairing_digest_verify(method, authorization, password);
+                    }
 		    if (!conn->authenticated) {
                         // if random_pw is used, the auth_fail_count will be the number of times it is displayed after creation
                         if (len != -1) {
@@ -739,10 +743,12 @@ raop_handler_setup(raop_conn_t *conn,
                     }
                     if (conn->authenticated) {
                         //printf("initial authenticatication OK\n");
-                        conn->authenticated = conn->authenticated && !strcmp(nonce_string, raop->nonce);
+                        /* raop->nonce is NULL when no challenge is outstanding (e.g. an
+                         * Authorization header sent before any 401): a mismatch, not a crash */
+                        conn->authenticated = conn->authenticated && raop->nonce && !strcmp(nonce_string, raop->nonce);
                         if (!conn->authenticated) {
                             logger_log(raop->logger, LOGGER_INFO, "authentication rejected (nonce mismatch) %s %s",
-                                       nonce_string, raop->nonce);
+                                       nonce_string, raop->nonce ? raop->nonce : "(none)");
                         }			
                     }
                     if (conn->authenticated && raop->random_pw) {
