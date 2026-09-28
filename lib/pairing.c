@@ -185,6 +185,10 @@ pairing_session_handshake(pairing_session_t *session, const unsigned char ecdh_k
     /* a crafted low-order peer key makes the derive fail; report an error to the
      * client rather than letting it terminate the process */
     if (x25519_derive_secret(session->ecdh_secret, session->ecdh_ours, session->ecdh_theirs) < 0) {
+        /* back to the pre-handshake state: a failed repeated step 1 must not leave a
+         * STATUS_HANDSHAKE session with a half-replaced key set and a stale secret */
+        memset(session->ecdh_secret, 0, sizeof(session->ecdh_secret));
+        session->status = STATUS_SETUP;
         return -1;
     }
 

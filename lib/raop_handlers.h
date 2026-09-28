@@ -510,15 +510,19 @@ raop_handler_pairverify(raop_conn_t *conn,
             logger_log(raop->logger, LOGGER_ERR, "Invalid pair-verify data");
             return;
         }
-        /* We can fall through these errors, the result will just be garbage... */
+        /* public_key and signature are only written when these succeed: on an error
+         * (e.g. a rejected client key) answer 470, never with the unwritten arrays */
         if (pairing_session_handshake(conn->session, data + 4, data + 4 + X25519_KEY_SIZE)) {
             logger_log(raop->logger, LOGGER_ERR, "Error initializing pair-verify handshake");
+            goto authentication_failed;
         }
         if (pairing_session_get_public_key(conn->session, public_key)) {
             logger_log(raop->logger, LOGGER_ERR, "Error getting ECDH public key");
+            goto authentication_failed;
         }
         if (pairing_session_get_signature(conn->session, signature)) {
             logger_log(raop->logger, LOGGER_ERR, "Error getting ED25519 signature");
+            goto authentication_failed;
         }
         if (register_check) {
             bool registered_client = true;
@@ -558,6 +562,9 @@ raop_handler_pairverify(raop_conn_t *conn,
         http_response_add_header(response, "Content-Type", "application/octet-stream");
         break;
     }
+    return;
+ authentication_failed:;
+    http_response_init(response, "RTSP/1.0", 470, "Client Authentication Failure");
 }
 
 static void
