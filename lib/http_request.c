@@ -41,10 +41,6 @@ struct http_request_s {
     int datalen;
 
     int complete;
-
-    /* one-past-the-end of the buffer passed to the current
-     * http_request_add_data() call; bounds on_url()'s post-URL peek */
-    const char *feed_end;
 };
 
 /* Caps applied while parsing, before the request is complete: an
@@ -77,16 +73,41 @@ on_url(llhttp_t *parser, const char *at, size_t length)
     request->urllen += length;
     request->url[request->urllen] = '\0';
 
-    /* Bytes after the URL delimiter are only valid up to feed_end -- this
-     * call's fed buffer, not whatever stale bytes follow it in memory. The
-     * unbounded strncpy() over-read leaked stale bytes into the protocol
-     * string (and thence into the response status line). */
-    const char *proto_start = at + length + 1;
-    ptrdiff_t avail = request->feed_end - proto_start;
-    if (avail > 0) {
-        memcpy(request->protocol, proto_start, (size_t)(avail < 8 ? avail : 8));
-    }
+    return 0;
+}
 
+/* Assemble the request-line protocol ("RTSP/1.0", "HTTP/1.1") from llhttp's
+ * protocol and version callbacks: they see exactly the bytes llhttp parsed,
+ * however the request line is split across http_request_add_data() calls, and
+ * never read past the fed buffer. */
+static void
+append_protocol(http_request_t *request, const char *at, size_t length)
+{
+    size_t len = strlen(request->protocol);
+    size_t room = sizeof(request->protocol) - 1 - len;
+
+    memcpy(request->protocol + len, at, length < room ? length : room);
+}
+
+static int
+on_protocol(llhttp_t *parser, const char *at, size_t length)
+{
+    append_protocol(parser->data, at, length);
+    return 0;
+}
+
+static int
+on_protocol_complete(llhttp_t *parser)
+{
+    /* llhttp requires the '/' between protocol and version */
+    append_protocol(parser->data, "/", 1);
+    return 0;
+}
+
+static int
+on_version(llhttp_t *parser, const char *at, size_t length)
+{
+    append_protocol(parser->data, at, length);
     return 0;
 }
 
@@ -197,6 +218,13 @@ on_message_complete(llhttp_t *parser)
 {
     http_request_t *request = parser->data;
 
+    /* llhttp accepts an HTTP/0.9-style request line ("GET /x") with no
+     * protocol, but raop.c echoes the protocol in its response status line
+     * (and an empty one trips http_response_init()'s assert): reject it. */
+    if (!request->protocol[0]) {
+        return -1;
+    }
+
     request->method = llhttp_method_name(request->parser.method);
     request->complete = 1;
     return 0;
@@ -212,6 +240,9 @@ http_request_init(void)
 
     llhttp_settings_init(&request->parser_settings);
     request->parser_settings.on_url = &on_url;
+    request->parser_settings.on_protocol = &on_protocol;
+    request->parser_settings.on_protocol_complete = &on_protocol_complete;
+    request->parser_settings.on_version = &on_version;
     request->parser_settings.on_header_field = &on_header_field;
     request->parser_settings.on_header_value = &on_header_value;
     request->parser_settings.on_body = &on_body;
@@ -242,7 +273,6 @@ http_request_add_data(http_request_t *request, const char *data, int datalen)
 {
     assert(request);
 
-    request->feed_end = data + datalen;
     int ret = llhttp_execute(&request->parser, data, datalen);
 
     /* support for "Upgrade" to reverse http ("PTTH/1.0") protocol */
