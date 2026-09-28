@@ -358,9 +358,11 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         uint64_t client_proof_len = 0;
         plist_get_data_val(req_pk_node, &client_pk, &client_pk_len);
         plist_get_data_val(req_proof_node, &client_proof, &client_proof_len);
-        /* the memcpy below reads sizeof(proof) bytes from client_proof; a shorter
-         * blob was read past its allocation. */
-        if (client_proof_len < sizeof(proof)) {
+        /* the client's SRP6a proof is a 20-byte SHA-1 hash (all 20 bytes are
+         * compared); proof[] is larger because the server proof is returned in it.
+         * A fixed sizeof(proof) copy read past the client's blob, so copy only
+         * what was sent. */
+        if (client_proof_len < 20) {
             logger_log(raop->logger, LOGGER_ERR, "pair-setup-pin: proof too short (%llu bytes)", client_proof_len);
             free(client_proof);
             free(client_pk);
@@ -372,7 +374,7 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
             logger_log(raop->logger, LOGGER_DEBUG, "client SRP6a proof <M> :\n%s", str);	    
             free (str);
         }
-        memcpy(proof, client_proof, sizeof(proof));
+        memcpy(proof, client_proof, client_proof_len < sizeof(proof) ? client_proof_len : sizeof(proof));
         free (client_proof);
         int ret = srp_validate_proof(conn->session, raop->pairing, (const unsigned char *) client_pk,
                                      (int) client_pk_len, proof, (int) sizeof(proof));
