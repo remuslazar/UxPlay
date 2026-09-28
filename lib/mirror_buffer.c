@@ -94,8 +94,17 @@ mirror_buffer_init(logger_t *logger, const unsigned char *aeskey)
 void mirror_buffer_decrypt(mirror_buffer_t *mirror_buffer, unsigned char* input, unsigned char* output, int inputLen) {
     // Start decrypting
     if (mirror_buffer->nextDecryptCount > 0) {//mirror_buffer->nextDecryptCount = 10
-        for (int i = 0; i < mirror_buffer->nextDecryptCount; i++) {
+        /* the packet can be shorter than the keystream left over from the last
+         * partial block: use only what fits (more would read past input and
+         * write past output) and keep the rest for the next packet, so the
+         * keystream stays in step with the sender. */
+        int count = (inputLen < mirror_buffer->nextDecryptCount ? inputLen : mirror_buffer->nextDecryptCount);
+        for (int i = 0; i < count; i++) {
             output[i] = (input[i] ^ mirror_buffer->og[(16 - mirror_buffer->nextDecryptCount) + i]);
+        }
+        if (count < mirror_buffer->nextDecryptCount) {
+            mirror_buffer->nextDecryptCount -= count;
+            return;
         }
     }
     // Handling encrypted bytes
