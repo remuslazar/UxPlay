@@ -719,6 +719,10 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             goto post_action_error;
         }
         plist_t req_params_item_uuid_node = plist_dict_get_item(req_params_item_node, "uuid");
+        /* require a string: plist_get_string_val leaves remove_uuid NULL for any other type */
+        if (!PLIST_IS_STRING(req_params_item_uuid_node)) {
+            goto post_action_error;
+        }
         char* remove_uuid = NULL;
         plist_get_string_val(req_params_item_uuid_node, &remove_uuid);
         assert(remove_uuid);
@@ -766,11 +770,13 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         if (airplay_video) {
             /* a video plays: the client queues another one after it */
             logger_log(raop->logger, LOGGER_ERR, "FIXME: playlistInsert is not yet implemented");
-        } else if (insert_uuid && location && strstr(location, "/master.m3u8") &&
+        } else if (insert_uuid && strlen(insert_uuid) == 36 && location && strstr(location, "/master.m3u8") &&
+                   strncmp(location, "/master.m3u8", strlen("/master.m3u8")) &&
                    strncmp(location, "http://", strlen("http://")) && strncmp(location, "https://", strlen("https://"))) {
             /* the client removed the video that played and inserts the one that replaces it: the YouTube app does
                this when another audio track is selected, for the same video under a new uuid.  It starts where
-               the removed one was */
+               the removed one was.  As for /play, set_playback_uuid() asserts a 36-character uuid, and
+               set_uri_prefix() a uri prefix before "/master.m3u8" */
             float position = get_resume_position_seconds(session_video);
             position = position > 0.0f ? position : 0.0f;
             const char *removed_selection = get_client_media_selection(session_video);
@@ -983,6 +989,11 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         logger_log(raop->logger, LOGGER_ERR, "Play request had no X-Apple-Session-ID");
         goto play_error;
     }
+    /* stored as a 36-character UUID: set_apple_session_id() asserts that length */
+    if (strlen(apple_session_id) != 36) {
+        logger_log(raop->logger, LOGGER_ERR, "Play request X-Apple-Session-ID is not a UUID");
+        goto play_error;
+    }
 
     int request_datalen = -1;    
     const char *request_data = http_request_get_data(request, &request_datalen);
@@ -1010,6 +1021,11 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     }
     char* playback_uuid = NULL;
     plist_get_string_val(req_uuid_node, &playback_uuid);
+    /* stored as a 36-character UUID: set_playback_uuid() asserts that length */
+    if (!playback_uuid || strlen(playback_uuid) != 36) {
+        plist_mem_free(playback_uuid);
+        goto play_error;
+    }
 
 #if 0
     for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
@@ -1095,7 +1111,8 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         raop->callbacks.on_video_play(raop->callbacks.cls,
                                       get_playback_location(airplay_video),
                                       start_position_seconds);
-    } else if (uri_suffix) {
+    } else if (uri_suffix && uri_suffix != playback_location) {
+        /* a uri prefix must come before "/master.m3u8": set_uri_prefix() asserts it is not empty */
         plist_t req_client_proc_name_node = plist_dict_get_item(req_root_node, "clientProcName");
         /* require a string: a non-string value leaves client_proc_name NULL and
          * the strstr() below crashes. */
