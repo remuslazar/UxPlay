@@ -593,9 +593,11 @@ raop_handler_fpsetup(raop_conn_t *conn,
             if (!fairplay_setup(conn->fairplay, data, (unsigned char *) *response_data)) {
                 *response_datalen = 142;
             } else {
-                // Handle error?
+                /* the type was checked above, so the mode byte is outside 0..3 */
+                logger_log(raop->logger, LOGGER_ERR, "Client sent an unsupported FairPlay mode %d", data[14]);
                 free(*response_data);
                 *response_data = NULL;
+                http_response_init(response, "RTSP/1.0", 400, "Bad Request");
             }
         }
     } else if (datalen == 164) {
@@ -605,9 +607,11 @@ raop_handler_fpsetup(raop_conn_t *conn,
             if (!fairplay_handshake(conn->fairplay, data, (unsigned char *) *response_data)) {
                 *response_datalen = 32;
             } else {
-                // Handle error?
+                /* the only failure: a FairPlay type other than 0x03, as above */
+                logger_log(raop->logger, LOGGER_ERR, "Client sent an unsupported type 0x%02x FairPlay handshake", data[4]);
                 free(*response_data);
                 *response_data = NULL;
+                http_response_init(response, "RTSP/1.0", 501, "Not Implemented");
             }
         }
     } else {
@@ -818,12 +822,17 @@ raop_handler_setup(raop_conn_t *conn,
 
         plist_get_data_val(req_eiv_node, &eiv, &eiv_len);
         /* eiv_len is the client-declared length of the eiv data; the memcpy
-         * consumes 16 bytes, so a shorter blob was read past its allocation. */
-        if (eiv_len >= 16) {
-            memcpy(aesiv, eiv, 16);
-        } else {
-            logger_log(raop->logger, LOGGER_ERR, "SETUP eiv too short (%llu bytes), ignoring", eiv_len);
+         * consumes 16 bytes, so a shorter blob was read past its allocation.
+         * No usable key comes from a short blob: reject the SETUP. */
+        if (eiv_len < 16) {
+            logger_log(raop->logger, LOGGER_ERR, "SETUP eiv too short (%llu bytes)", eiv_len);
+            free(eiv);
+            plist_free(res_root_node);
+            plist_free(req_root_node);
+            http_response_init(response, "RTSP/1.0", 400, "Bad Request");
+            return;
         }
+        memcpy(aesiv, eiv, 16);
         free(eiv);
         logger_log(raop->logger, LOGGER_DEBUG, "eiv_len = %llu", eiv_len);
         if (logger_debug) {
@@ -836,12 +845,16 @@ raop_handler_setup(raop_conn_t *conn,
         uint64_t ekey_len = 0;
         plist_get_data_val(req_ekey_node, &ekey, &ekey_len);
         /* ekey_len is client-declared; the memcpy consumes 72 bytes, so a
-         * shorter blob was read past its allocation. */
-        if (ekey_len >= 72) {
-            memcpy(eaeskey,ekey,72);
-        } else {
-            logger_log(raop->logger, LOGGER_ERR, "SETUP ekey too short (%llu bytes), ignoring", ekey_len);
+         * shorter blob was read past its allocation. Reject it, as for eiv. */
+        if (ekey_len < 72) {
+            logger_log(raop->logger, LOGGER_ERR, "SETUP ekey too short (%llu bytes)", ekey_len);
+            free(ekey);
+            plist_free(res_root_node);
+            plist_free(req_root_node);
+            http_response_init(response, "RTSP/1.0", 400, "Bad Request");
+            return;
         }
+        memcpy(eaeskey,ekey,72);
         free(ekey);
         logger_log(raop->logger, LOGGER_DEBUG, "ekey_len = %llu", ekey_len);
         // eaeskey is 72 bytes, aeskey is 16 bytes
