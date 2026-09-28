@@ -2491,6 +2491,13 @@ extern "C" void audio_set_volume (void *cls, float volume) {
     if (!use_audio) {
       return;
     }
+    /* A NaN volume slips through every range test below (NaN compares false) and
+     * ends up as a NaN GStreamer volume and a NaN announced back to the client;
+     * reject any non-finite value the client sends. */
+    if (!isfinite(volume)) {
+        LOGE(" ignoring non-finite AirPlay volume");
+        return;
+    }
     /* convert from AirPlay dB  volume in range {-30dB : 0dB}, to GStreamer volume */
     if (volume == -144.0f) {   /* AirPlay "mute" signal */
         frac = 0.0;
@@ -2632,6 +2639,13 @@ extern "C" void audio_set_metadata(void *cls, const void *buffer, int buflen) {
         }
         metadata += 8;
         buflen -= 8;
+        /* datalen is the item length from its DMAP header (>= 0); it must not
+         * exceed the bytes actually left, or process_metadata reads past the
+         * buffer and buflen underflows. */
+        if (datalen > buflen) {
+            LOGE("metadata item length %d exceeds remaining %d bytes", datalen, buflen);
+            return;
+        }
         process_metadata(count, (const char *) dmap_tag, metadata, datalen, &metadata_text);
         metadata += datalen;
         buflen -= datalen;
