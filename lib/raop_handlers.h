@@ -356,14 +356,25 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         memset(proof, 0, sizeof(proof));
         uint64_t client_pk_len = 0;
         uint64_t client_proof_len = 0;
-        plist_get_data_val(req_pk_node, &client_pk, &client_pk_len); 
+        plist_get_data_val(req_pk_node, &client_pk, &client_pk_len);
         plist_get_data_val(req_proof_node, &client_proof, &client_proof_len);
+        /* the client's SRP6a proof is a 20-byte SHA-1 hash (all 20 bytes are
+         * compared); proof[] is larger because the server proof is returned in it.
+         * A fixed sizeof(proof) copy read past the client's blob, so copy only
+         * what was sent. */
+        if (client_proof_len < 20) {
+            logger_log(raop->logger, LOGGER_ERR, "pair-setup-pin: proof too short (%llu bytes)", client_proof_len);
+            free(client_proof);
+            free(client_pk);
+            plist_free(req_root_node);
+            goto authentication_failed;
+        }
         if (logger_debug) {
             char *str = utils_data_to_string((const unsigned char *) client_proof, client_proof_len, 20);
             logger_log(raop->logger, LOGGER_DEBUG, "client SRP6a proof <M> :\n%s", str);	    
             free (str);
         }
-        memcpy(proof, client_proof, sizeof(proof));
+        memcpy(proof, client_proof, client_proof_len < sizeof(proof) ? client_proof_len : sizeof(proof));
         free (client_proof);
         int ret = srp_validate_proof(conn->session, raop->pairing, (const unsigned char *) client_pk,
                                      (int) client_pk_len, proof, (int) sizeof(proof));
@@ -394,8 +405,18 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         unsigned char epk[ED25519_KEY_SIZE];
         unsigned char authtag[GCM_AUTHTAG_SIZE];
         int ret = 0;
-        plist_get_data_val(req_epk_node, &client_epk, &client_epk_len); 
+        plist_get_data_val(req_epk_node, &client_epk, &client_epk_len);
         plist_get_data_val(req_authtag_node, &client_authtag, &client_authtag_len);
+        /* the memcpys below read fixed sizes from these blobs; a shorter blob
+         * was read past its allocation. */
+        if (client_epk_len < ED25519_KEY_SIZE || client_authtag_len < GCM_AUTHTAG_SIZE) {
+            logger_log(raop->logger, LOGGER_ERR, "pair-setup-pin: epk/authtag too short (%llu/%llu bytes)",
+                       client_epk_len, client_authtag_len);
+            free(client_authtag);
+            free(client_epk);
+            plist_free(req_root_node);
+            goto authentication_failed;
+        }
 
         if (logger_debug) {
             char *str = utils_data_to_string((const unsigned char *) client_epk, client_epk_len, 16);
@@ -491,15 +512,19 @@ raop_handler_pairverify(raop_conn_t *conn,
             logger_log(raop->logger, LOGGER_ERR, "Invalid pair-verify data");
             return;
         }
-        /* We can fall through these errors, the result will just be garbage... */
+        /* public_key and signature are only written when these succeed: on an error
+         * (e.g. a rejected client key) answer 470, never with the unwritten arrays */
         if (pairing_session_handshake(conn->session, data + 4, data + 4 + X25519_KEY_SIZE)) {
             logger_log(raop->logger, LOGGER_ERR, "Error initializing pair-verify handshake");
+            goto authentication_failed;
         }
         if (pairing_session_get_public_key(conn->session, public_key)) {
             logger_log(raop->logger, LOGGER_ERR, "Error getting ECDH public key");
+            goto authentication_failed;
         }
         if (pairing_session_get_signature(conn->session, signature)) {
             logger_log(raop->logger, LOGGER_ERR, "Error getting ED25519 signature");
+            goto authentication_failed;
         }
         if (register_check) {
             bool registered_client = true;
@@ -539,6 +564,9 @@ raop_handler_pairverify(raop_conn_t *conn,
         http_response_add_header(response, "Content-Type", "application/octet-stream");
         break;
     }
+    return;
+ authentication_failed:;
+    http_response_init(response, "RTSP/1.0", 470, "Client Authentication Failure");
 }
 
 static void
@@ -565,9 +593,11 @@ raop_handler_fpsetup(raop_conn_t *conn,
             if (!fairplay_setup(conn->fairplay, data, (unsigned char *) *response_data)) {
                 *response_datalen = 142;
             } else {
-                // Handle error?
+                /* the type was checked above, so the mode byte is outside 0..3 */
+                logger_log(raop->logger, LOGGER_ERR, "Client sent an unsupported FairPlay mode %d", data[14]);
                 free(*response_data);
                 *response_data = NULL;
+                http_response_init(response, "RTSP/1.0", 400, "Bad Request");
             }
         }
     } else if (datalen == 164) {
@@ -577,9 +607,11 @@ raop_handler_fpsetup(raop_conn_t *conn,
             if (!fairplay_handshake(conn->fairplay, data, (unsigned char *) *response_data)) {
                 *response_datalen = 32;
             } else {
-                // Handle error?
+                /* the only failure: a FairPlay type other than 0x03, as above */
+                logger_log(raop->logger, LOGGER_ERR, "Client sent an unsupported type 0x%02x FairPlay handshake", data[4]);
                 free(*response_data);
                 *response_data = NULL;
+                http_response_init(response, "RTSP/1.0", 501, "Not Implemented");
             }
         }
     } else {
@@ -652,8 +684,8 @@ raop_handler_setup(raop_conn_t *conn,
             const char *authorization = NULL;
             authorization = http_request_get_header(request, "Authorization");
             if (!authorization) {
-                // if random_pw is set, but client has changed, unset it 
-                if (raop->random_pw && strncmp(raop->random_pw + pin_len + 1,  deviceID, 17)) {
+                // if random_pw is set, but client has changed (or sent no deviceID), unset it 
+                if (raop->random_pw && (!deviceID || strncmp(raop->random_pw + pin_len + 1,  deviceID, 17))) {
                     free(raop->random_pw);
                     raop->random_pw = NULL;
                 }
@@ -678,7 +710,7 @@ raop_handler_setup(raop_conn_t *conn,
                     char *pin = raop->random_pw;
                     snprintf(pin, pin_len + 1, "%04u", pin_4 % 10000);
                     pin[pin_len] = '\0';
-                    snprintf(pin + pin_len + 1, 18, "%s", deviceID);
+                    snprintf(pin + pin_len + 1, 18, "%s", deviceID ? deviceID : "");
                 } else {
                     logger_log(raop->logger, LOGGER_ERR, "Failed to allocate raop->random_pw");
                 }
@@ -698,10 +730,14 @@ raop_handler_setup(raop_conn_t *conn,
                 char nonce_string[33] = { '\0' };
                 //bool stale = false;  //not implemented
                 if (len && authorization) {
-                    const char *ptr = strstr(authorization, "nonce=\"") +  strlen("nonce=\"");
-                    strncpy(nonce_string, ptr, 32);
-                    const char *method = http_request_get_method(request);
-                    conn->authenticated = pairing_digest_verify(method, authorization, password);
+                    /* a header without nonce="..." made this NULL + 7 (a pre-auth remote
+                     * crash); it is a failed authentication */
+                    const char *ptr = strstr(authorization, "nonce=\"");
+                    if (ptr) {
+                        strncpy(nonce_string, ptr + strlen("nonce=\""), 32);
+                        const char *method = http_request_get_method(request);
+                        conn->authenticated = pairing_digest_verify(method, authorization, password);
+                    }
 		    if (!conn->authenticated) {
                         // if random_pw is used, the auth_fail_count will be the number of times it is displayed after creation
                         if (len != -1) {
@@ -711,10 +747,12 @@ raop_handler_setup(raop_conn_t *conn,
                     }
                     if (conn->authenticated) {
                         //printf("initial authenticatication OK\n");
-                        conn->authenticated = conn->authenticated && !strcmp(nonce_string, raop->nonce);
+                        /* raop->nonce is NULL when no challenge is outstanding (e.g. an
+                         * Authorization header sent before any 401): a mismatch, not a crash */
+                        conn->authenticated = conn->authenticated && raop->nonce && !strcmp(nonce_string, raop->nonce);
                         if (!conn->authenticated) {
                             logger_log(raop->logger, LOGGER_INFO, "authentication rejected (nonce mismatch) %s %s",
-                                       nonce_string, raop->nonce);
+                                       nonce_string, raop->nonce ? raop->nonce : "(none)");
                         }			
                     }
                     if (conn->authenticated && raop->random_pw) {
@@ -783,8 +821,19 @@ raop_handler_setup(raop_conn_t *conn,
         }
 
         plist_get_data_val(req_eiv_node, &eiv, &eiv_len);
+        /* eiv_len is the client-declared length of the eiv data; the memcpy
+         * consumes 16 bytes, so a shorter blob was read past its allocation.
+         * No usable key comes from a short blob: reject the SETUP. */
+        if (eiv_len < 16) {
+            logger_log(raop->logger, LOGGER_ERR, "SETUP eiv too short (%llu bytes)", eiv_len);
+            free(eiv);
+            plist_free(res_root_node);
+            plist_free(req_root_node);
+            http_response_init(response, "RTSP/1.0", 400, "Bad Request");
+            return;
+        }
         memcpy(aesiv, eiv, 16);
-        free(eiv);	
+        free(eiv);
         logger_log(raop->logger, LOGGER_DEBUG, "eiv_len = %llu", eiv_len);
         if (logger_debug) {
             char* str = utils_data_to_string(aesiv, 16, 16);
@@ -795,12 +844,23 @@ raop_handler_setup(raop_conn_t *conn,
         char* ekey = NULL;
         uint64_t ekey_len = 0;
         plist_get_data_val(req_ekey_node, &ekey, &ekey_len);
+        /* ekey_len is client-declared; the memcpy consumes 72 bytes, so a
+         * shorter blob was read past its allocation. Reject it, as for eiv. */
+        if (ekey_len < 72) {
+            logger_log(raop->logger, LOGGER_ERR, "SETUP ekey too short (%llu bytes)", ekey_len);
+            free(ekey);
+            plist_free(res_root_node);
+            plist_free(req_root_node);
+            http_response_init(response, "RTSP/1.0", 400, "Bad Request");
+            return;
+        }
         memcpy(eaeskey,ekey,72);
         free(ekey);
         logger_log(raop->logger, LOGGER_DEBUG, "ekey_len = %llu", ekey_len);
         // eaeskey is 72 bytes, aeskey is 16 bytes
         if (logger_debug) {
-            char *str = utils_data_to_string((unsigned char *) eaeskey, ekey_len, 16);
+            /* only 72 bytes were ever copied into eaeskey; never read past it */
+            char *str = utils_data_to_string((unsigned char *) eaeskey, ekey_len > 72 ? 72 : (int) ekey_len, 16);
             logger_log(raop->logger, LOGGER_DEBUG, "ekey:\n%s", str);
             free (str);
         }

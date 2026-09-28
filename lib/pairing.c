@@ -168,12 +168,29 @@ pairing_session_handshake(pairing_session_t *session, const unsigned char ecdh_k
         return -1;
     }
 
+    /* A repeated pair-verify step 1 would overwrite these without freeing the
+     * previous key objects; destroy any left from an earlier attempt first. */
+    x25519_key_destroy(session->ecdh_theirs);
+    ed25519_key_destroy(session->ed_theirs);
+    x25519_key_destroy(session->ecdh_ours);
+    session->ecdh_theirs = NULL;
+    session->ed_theirs = NULL;
+    session->ecdh_ours = NULL;
+
     session->ecdh_theirs = x25519_key_from_raw(ecdh_key);
     session->ed_theirs = ed25519_key_from_raw(ed_key);
 
     session->ecdh_ours = x25519_key_generate();
 
-    x25519_derive_secret(session->ecdh_secret, session->ecdh_ours, session->ecdh_theirs);
+    /* a crafted low-order peer key makes the derive fail; report an error to the
+     * client rather than letting it terminate the process */
+    if (x25519_derive_secret(session->ecdh_secret, session->ecdh_ours, session->ecdh_theirs) < 0) {
+        /* back to the pre-handshake state: a failed repeated step 1 must not leave a
+         * STATUS_HANDSHAKE session with a half-replaced key set and a stale secret */
+        memset(session->ecdh_secret, 0, sizeof(session->ecdh_secret));
+        session->status = STATUS_SETUP;
+        return -1;
+    }
 
     session->status = STATUS_HANDSHAKE;
     return 0;
@@ -198,6 +215,7 @@ pairing_session_get_public_key(pairing_session_t *session, unsigned char ecdh_ke
 int
 pairing_session_make_nonce(pairing_session_t *session, uint64_t *local_time, const char *client_data, unsigned char *nonce, int len)  {
     unsigned char hash[SHA512_DIGEST_LENGTH];
+    unsigned char public_key[ED25519_KEY_SIZE];
     if (len > (int) sizeof(hash)) {
       return -1;
     }
@@ -207,7 +225,10 @@ pairing_session_make_nonce(pairing_session_t *session, uint64_t *local_time, con
     sha_ctx_t *ctx = sha_init();
     sha_update(ctx, (const unsigned char *) local_time, sizeof(uint64_t));
     sha_update(ctx, (const unsigned char *) client_data, strlen(client_data));
-    sha_update(ctx, (const unsigned char *) session->ed_ours, ED25519_KEY_SIZE);
+    /* hash the server public key: session->ed_ours is only the key wrapper (one
+     * pointer), so reading ED25519_KEY_SIZE bytes from it over-read the heap */
+    ed25519_key_get_raw(public_key, session->ed_ours);
+    sha_update(ctx, public_key, ED25519_KEY_SIZE);
     sha_final(ctx, hash, NULL);
     sha_destroy(ctx);
     memcpy(nonce, hash, len);
@@ -295,6 +316,13 @@ pairing_digest_verify(const char *method, const char * authorization, const char
         cnonce = get_token(&cursor, "cnonce", '\"', '\"');
     }
     response = get_token(&cursor, "response", '\"', '\"');
+
+    /* all of these come from the client's Authorization header and were passed to
+     * strlen()/strcmp() unchecked: a missing field is a failed authentication */
+    if (!username || !realm || !nonce || !uri || !response || (qop && (!nc || !cnonce))) {
+        free(sentence);
+        return false;
+    }
 
 #ifdef test_digest
     printf("username: [%s]  realm: [%s]\n", username, realm);
@@ -555,6 +583,11 @@ srp_new_user(pairing_session_t *session, pairing_t *pairing, const char *device_
 int
 srp_validate_proof(pairing_session_t *session, pairing_t *pairing, const unsigned char *A,
                    int len_A, unsigned char *proof, int proof_len) {
+    /* A client that sends this pair-setup-pin step before the first step has no
+     * SRP state yet; without this guard the derefs below crashed the process. */
+    if (!session->srp) {
+        return -1;
+    }
     int authenticated  = 0;
     const unsigned char *B =  NULL;
     const unsigned char *b = session->srp->private_key;
@@ -592,6 +625,10 @@ srp_validate_proof(pairing_session_t *session, pairing_t *pairing, const unsigne
 int
 srp_confirm_pair_setup(pairing_session_t *session, pairing_t *pairing,
                        unsigned char *epk, unsigned char *auth_tag) {
+    /* Same out-of-order guard as srp_validate_proof: no SRP state, no step 3. */
+    if (!session->srp) {
+        return -1;
+    }
     unsigned char aesKey[16] = {0}, aesIV[16] = {0};
     unsigned char hash[SHA512_DIGEST_LENGTH] = {0};
     unsigned char pk[ED25519_KEY_SIZE] = {0};
