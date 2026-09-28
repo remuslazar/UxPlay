@@ -475,14 +475,19 @@ raop_rtp_mirror_thread(void *arg)
                 int nalu_size = 0;
                 int nalus_count = 0;
                 while (nalu_size < payload_size) {
+                    /* the 4-byte length must itself lie inside the payload before
+                     * it is read: a 1-3 byte remainder is not a NAL length. */
+                    if (nalu_size + 4 > payload_size) {
+                        valid_data = false;
+                        break;
+                    }
                     int nc_len = byteutils_get_int_be(payload_decrypted, nalu_size);
                     /* nc_len is read from the payload, so it is only a length if
                      * the unit it claims fits in what is left. Reject a zero
                      * length too: a trailing empty NAL left nalu_size == payload_size
                      * and the forbidden-zero-bit read below then ran one byte past
                      * the buffer. */
-                    if (nc_len <= 0 || nalu_size + 4 > payload_size ||
-                        nc_len > payload_size - nalu_size - 4) {
+                    if (nc_len <= 0 || nc_len > payload_size - nalu_size - 4) {
                         valid_data = false;
                         break;
                     }
