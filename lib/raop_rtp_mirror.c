@@ -310,6 +310,7 @@ raop_rtp_mirror_thread(void *arg)
                 logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG,
                            "raop_rtp_mirror tcp socket was closed by client (recv returned 0); got %d bytes of 128 byte header",readstart);
                 FD_CLR(stream_fd, &rfds);
+                CLOSESOCKET(stream_fd);
                 stream_fd = -1;
                 continue;
             } else if (payload == NULL && ret == -1) {
