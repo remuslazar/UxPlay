@@ -56,6 +56,12 @@ fairplay_setup(fairplay_t *fp, const unsigned char req[16], unsigned char res[14
     }
 
     int mode = req[14];
+    /* mode indexes reply_message[4][]; req[14] is attacker-controlled (0-255),
+     * so an out-of-range value read far past the table and returned up to 142
+     * bytes of adjacent memory to the client. */
+    if (mode < 0 || mode >= 4) {
+        return -1;
+    }
     memcpy(res, reply_message[mode], 142);
     fp->keymsglen = 0;
     return 0;
