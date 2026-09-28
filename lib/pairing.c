@@ -215,6 +215,7 @@ pairing_session_get_public_key(pairing_session_t *session, unsigned char ecdh_ke
 int
 pairing_session_make_nonce(pairing_session_t *session, uint64_t *local_time, const char *client_data, unsigned char *nonce, int len)  {
     unsigned char hash[SHA512_DIGEST_LENGTH];
+    unsigned char public_key[ED25519_KEY_SIZE];
     if (len > (int) sizeof(hash)) {
       return -1;
     }
@@ -224,7 +225,10 @@ pairing_session_make_nonce(pairing_session_t *session, uint64_t *local_time, con
     sha_ctx_t *ctx = sha_init();
     sha_update(ctx, (const unsigned char *) local_time, sizeof(uint64_t));
     sha_update(ctx, (const unsigned char *) client_data, strlen(client_data));
-    sha_update(ctx, (const unsigned char *) session->ed_ours, ED25519_KEY_SIZE);
+    /* hash the server public key: session->ed_ours is only the key wrapper (one
+     * pointer), so reading ED25519_KEY_SIZE bytes from it over-read the heap */
+    ed25519_key_get_raw(public_key, session->ed_ours);
+    sha_update(ctx, public_key, ED25519_KEY_SIZE);
     sha_final(ctx, hash, NULL);
     sha_destroy(ctx);
     memcpy(nonce, hash, len);
