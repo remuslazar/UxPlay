@@ -860,6 +860,11 @@ raop_rtp_stop(raop_rtp_t *raop_rtp)
         CLOSESOCKET(raop_rtp->dsock);
         raop_rtp->dsock = -1;
     }
+    /* the sockets' receive contexts (raop_rtp_init_sockets), whose sockets are closed above */
+    free(raop_rtp->rtp_session_csock);
+    raop_rtp->rtp_session_csock = NULL;
+    free(raop_rtp->rtp_session_dsock);
+    raop_rtp->rtp_session_dsock = NULL;
 
     /* Flush buffer into initial state */
     raop_buffer_flush(raop_rtp->buffer, -1);

@@ -185,10 +185,6 @@ conn_init(void *opaque, unsigned char *local, int locallen, unsigned char *remot
     conn->authenticated = false;
 
     conn->have_active_remote = false;
-    
-    if (raop->callbacks.conn_init) {
-        raop->callbacks.conn_init(raop->callbacks.cls);
-    }
 
     return conn;
 }
@@ -295,10 +291,16 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
             logger_log(raop->logger, LOGGER_DEBUG, "New connection %p identified as Connection type RAOP", ptr);
             httpd_set_connection_type(raop->httpd, ptr, CONNECTION_TYPE_RAOP);
             conn->connection_type = CONNECTION_TYPE_RAOP;
+            if (raop->callbacks.conn_init) {
+                raop->callbacks.conn_init(raop->callbacks.cls);
+            }
         } else if (client_session_id) {
             logger_log(raop->logger, LOGGER_DEBUG, "New connection %p identified as Connection type AirPlay", ptr);            
             httpd_set_connection_type(raop->httpd, ptr, CONNECTION_TYPE_AIRPLAY);
             conn->connection_type = CONNECTION_TYPE_AIRPLAY;
+            if (raop->callbacks.conn_init) {
+                raop->callbacks.conn_init(raop->callbacks.cls);
+            }
             conn->client_session_id = (char *) calloc(strlen(client_session_id) + 1, sizeof(char));
             assert(conn->client_session_id);
             memcpy(conn->client_session_id, client_session_id, strlen(client_session_id));
@@ -556,7 +558,10 @@ conn_destroy(void *ptr) {
     raop_t *raop = conn->raop;
     logger_log(raop->logger, LOGGER_DEBUG, "Destroying connection");
 
-    if (raop->callbacks.conn_destroy) {
+    /* conn_init and conn_destroy count the client's connections (RAOP and AirPlay), not those of the
+       HLS player fetching playlists from this server, which outlive the client's */
+    if (raop->callbacks.conn_destroy && (conn->connection_type == CONNECTION_TYPE_RAOP ||
+                                         conn->connection_type == CONNECTION_TYPE_AIRPLAY)) {
         raop->callbacks.conn_destroy(raop->callbacks.cls);
     }
 
