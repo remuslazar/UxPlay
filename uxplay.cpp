@@ -202,6 +202,8 @@ static guint missed_feedback_limit = MISSED_FEEDBACK_LIMIT;
 static guint missed_feedback = 0;
 static guint playbin_version = DEFAULT_PLAYBIN_VERSION;
 static bool reset_httpd = false;
+/* the HLS player is to go, its client having left: the main loop replaces it by the mirror renderer */
+static bool end_hls_player = false;
 static bool monitor_progress = false;
 static uint32_t rtptime = 0;
 static uint32_t rtptime_prev = 0;
@@ -590,7 +592,16 @@ static gboolean feedback_callback(gpointer loop) {
     return TRUE;
 }
 
+extern "C" void video_reset(void *cls, reset_type_t type);
+
 static gboolean reset_callback(gpointer loop) {
+    if (end_hls_player && !reset_loop) {
+        if (video_renderer_is_hls()) {
+            video_reset(NULL, RESET_TYPE_HLS_SHUTDOWN);
+        } else {
+            end_hls_player = false;
+        }
+    }
     if (reset_loop) {
         g_main_loop_quit((GMainLoop *) loop);
     }
@@ -2338,6 +2349,11 @@ extern "C" void conn_destroy (void *cls) {
         if (mux_to_file) {
             mux_renderer_stop();
         }
+        /* the client's HLS video ends with its last connection, also without POST /stop or TEARDOWN (an app
+           that is closed, a device that leaves the network); the main loop ends it (reset_callback) */
+        if (use_video && video_renderer_is_hls()) {
+            end_hls_player = true;
+        }
     }
 }
 
@@ -2689,6 +2705,7 @@ extern "C" void on_video_play(void *cls, const char* location, const float start
     /* the start position is registered once the renderer for this url exists (below, after video_renderer_init):
        until then the previous pipeline still runs, and would take the seek for itself */
     url_start_position = start_position;
+    end_hls_player = false;
     url.erase();
     url.append(location);
     relaunch_video = true;
