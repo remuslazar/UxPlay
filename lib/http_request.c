@@ -30,6 +30,7 @@ struct http_request_s {
     bool is_reverse;  // if true, this is a reverse-response from client
     const char *method;
     char *url;
+    size_t urllen;
     char protocol[9];
 
     char **headers;
@@ -42,20 +43,71 @@ struct http_request_s {
     int complete;
 };
 
+/* Caps applied while parsing, before the request is complete: an
+ * unauthenticated client must not be able to make us realloc without bound.
+ * The largest legitimate bodies are cover-art images and HLS playlists, well
+ * under this; a single header line is always small. llhttp limits neither the
+ * URL length nor the header count: AirPlay/RTSP and HLS playlist URLs are far
+ * below 8 kB, and raop.c rejects more than 20 header fields, but only once the
+ * request is complete, which an attacker need never send. */
+#define MAX_REQUEST_BODY_LEN (8 * 1024 * 1024)
+#define MAX_HEADER_ACCUM_LEN (64 * 1024)
+#define MAX_URL_LEN (8 * 1024)
+#define MAX_HEADER_FIELDS 64
+
 static int
 on_url(llhttp_t *parser, const char *at, size_t length)
 {
     http_request_t *request = parser->data;
-    int urllen = request->url ? strlen(request->url) : 0;
 
-    request->url = realloc(request->url, urllen+length+1);
+    /* Cap the URL so a request line that never ends cannot grow it without
+     * bound; track its length rather than strlen() it on every fed chunk. */
+    if (length > (size_t) MAX_URL_LEN - request->urllen) {
+        return HPE_USER;
+    }
+
+    request->url = realloc(request->url, request->urllen + length + 1);
     assert(request->url);
 
-    request->url[urllen] = '\0';
-    strncat(request->url, at, length);
+    memcpy(request->url + request->urllen, at, length);
+    request->urllen += length;
+    request->url[request->urllen] = '\0';
 
-    strncpy(request->protocol, at + length + 1, 8);
+    return 0;
+}
 
+/* Assemble the request-line protocol ("RTSP/1.0", "HTTP/1.1") from llhttp's
+ * protocol and version callbacks: they see exactly the bytes llhttp parsed,
+ * however the request line is split across http_request_add_data() calls, and
+ * never read past the fed buffer. */
+static void
+append_protocol(http_request_t *request, const char *at, size_t length)
+{
+    size_t len = strlen(request->protocol);
+    size_t room = sizeof(request->protocol) - 1 - len;
+
+    memcpy(request->protocol + len, at, length < room ? length : room);
+}
+
+static int
+on_protocol(llhttp_t *parser, const char *at, size_t length)
+{
+    append_protocol(parser->data, at, length);
+    return 0;
+}
+
+static int
+on_protocol_complete(llhttp_t *parser)
+{
+    /* llhttp requires the '/' between protocol and version */
+    append_protocol(parser->data, "/", 1);
+    return 0;
+}
+
+static int
+on_version(llhttp_t *parser, const char *at, size_t length)
+{
+    append_protocol(parser->data, at, length);
     return 0;
 }
 
@@ -71,12 +123,25 @@ on_header_field(llhttp_t *parser, const char *at, size_t length)
 
     /* Allocate space for new field-value pair */
     if (request->headers_index == request->headers_size) {
+        /* Cap the field count so a client cannot add headers without bound. */
+        if (request->headers_size >= 2 * MAX_HEADER_FIELDS) {
+            return HPE_USER;
+        }
         request->headers_size += 2;
         request->headers = realloc(request->headers,
                                    request->headers_size*sizeof(char*));
         assert(request->headers);
         request->headers[request->headers_index] = NULL;
         request->headers[request->headers_index+1] = NULL;
+    }
+
+    /* Cap accumulated length so a client cannot grow one header without bound. */
+    {
+        size_t have = request->headers[request->headers_index] ?
+                      strlen(request->headers[request->headers_index]) : 0;
+        if (have + length > (size_t) MAX_HEADER_ACCUM_LEN) {
+            return HPE_USER;
+        }
     }
 
     /* Allocate space in the current header string */
@@ -104,6 +169,15 @@ on_header_value(llhttp_t *parser, const char *at, size_t length)
         request->headers_index++;
     }
 
+    /* Cap accumulated length so a client cannot grow one header without bound. */
+    {
+        size_t have = request->headers[request->headers_index] ?
+                      strlen(request->headers[request->headers_index]) : 0;
+        if (have + length > (size_t) MAX_HEADER_ACCUM_LEN) {
+            return HPE_USER;
+        }
+    }
+
     /* Allocate space in the current header string */
     if (request->headers[request->headers_index] == NULL) {
         request->headers[request->headers_index] = calloc(1, length + 1);
@@ -124,6 +198,13 @@ on_body(llhttp_t *parser, const char *at, size_t length)
 {
     http_request_t *request = parser->data;
 
+    /* Stop an unauthenticated client from growing this buffer without bound
+     * (memory-exhaustion DoS); also avoids the int overflow of datalen+length. */
+    if (length > (size_t) MAX_REQUEST_BODY_LEN ||
+        (size_t) request->datalen + length > (size_t) MAX_REQUEST_BODY_LEN) {
+        return HPE_USER;
+    }
+
     request->data = realloc(request->data, request->datalen + length);
     assert(request->data);
 
@@ -136,6 +217,13 @@ static int
 on_message_complete(llhttp_t *parser)
 {
     http_request_t *request = parser->data;
+
+    /* llhttp accepts an HTTP/0.9-style request line ("GET /x") with no
+     * protocol, but raop.c echoes the protocol in its response status line
+     * (and an empty one trips http_response_init()'s assert): reject it. */
+    if (!request->protocol[0]) {
+        return -1;
+    }
 
     request->method = llhttp_method_name(request->parser.method);
     request->complete = 1;
@@ -152,6 +240,9 @@ http_request_init(void)
 
     llhttp_settings_init(&request->parser_settings);
     request->parser_settings.on_url = &on_url;
+    request->parser_settings.on_protocol = &on_protocol;
+    request->parser_settings.on_protocol_complete = &on_protocol_complete;
+    request->parser_settings.on_version = &on_version;
     request->parser_settings.on_header_field = &on_header_field;
     request->parser_settings.on_header_value = &on_header_value;
     request->parser_settings.on_body = &on_body;
