@@ -420,13 +420,15 @@ static gboolean gstreamer_audio_pipeline_bus_callback(GstBus *bus, GstMessage *m
         g_error_free(err);
         g_free(debug);
         /* renderer is NULL before the first audio start and after a stop; a bus
-         * error message arriving then must not dereference it. */
-        if (renderer && renderer->appsrc) {
-            gst_app_src_end_of_stream (GST_APP_SRC(renderer->appsrc));
+         * error message arriving then must not dereference it. Read it once, as
+         * a stop on another thread can clear it between the checks. */
+        audio_renderer_t *r = renderer;
+        if (r && r->appsrc) {
+            gst_app_src_end_of_stream (GST_APP_SRC(r->appsrc));
         }
         gst_bus_set_flushing(bus, TRUE);
-        if (renderer && renderer->pipeline) {
-            gst_element_set_state (renderer->pipeline, GST_STATE_READY);
+        if (r && r->pipeline) {
+            gst_element_set_state (r->pipeline, GST_STATE_READY);
         }
         g_main_loop_quit( (GMainLoop *) loop);
 	break;
