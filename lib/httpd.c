@@ -30,9 +30,12 @@
 #include "utils.h"
 
 /* Retry budget for the 8-byte reverse-HTTP peek in httpd_thread(), reset on any
- * forward progress. Bounds how long a client may drip-feed the first 8 bytes
- * before we give up on it, so a stalled peer cannot hold a connection slot for
- * ever. */
+ * forward progress. It only counts passes where select() reported the socket
+ * readable but recv() still failed with EAGAIN/EINTR, so it stops a socket that
+ * keeps waking select() without delivering data from being retried for ever.
+ * It is not a time limit: a peer that sends a few bytes and then goes silent
+ * never becomes readable again, so it keeps its connection slot like any idle
+ * client -- but it no longer blocks the thread. */
 #define HTTPD_PEEK_MAX_RETRIES 40
 
 /* Shared capacity for httpd_thread()'s local `buffer` and each connection's
