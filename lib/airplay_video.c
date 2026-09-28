@@ -339,6 +339,9 @@ static char * list_languages(const char *master_playlist, int n_slice, slice_t *
             continue;
         }
         lang = strstr(slice[i].first, "LANGUAGE=\"");
+        /* ignore a value whose closing '"' is not on its line */
+        const char *lang_end = lang ? strchr(lang + strlen("LANGUAGE=\""), '"') : NULL;
+        lang = lang_end && lang_end < slice[i].last ? lang : NULL;
         if (lang && lang < slice[i].last) {
             lang = strchr(lang, '"');
             lang++;
@@ -357,6 +360,9 @@ static char * list_languages(const char *master_playlist, int n_slice, slice_t *
             continue;
         }
         lang = strstr(slice[i].first, "LANGUAGE=\"");
+        /* ignore a value whose closing '"' is not on its line */
+        const char *lang_end = lang ? strchr(lang + strlen("LANGUAGE=\""), '"') : NULL;
+        lang = lang_end && lang_end < slice[i].last ? lang : NULL;
         char * autoselect_no = NULL;
         if (autoselect) {
             /* eliminate AUTOSELECT=NO entries when autoselect = true */
@@ -578,8 +584,9 @@ static slice_t *master_playlist_slicer(const char *master_playlist, airplay_vide
             } else if (!strncmp(type, "CLOSED-CAPTIONS", strlen("CLOSED-CAPTIONS"))) {
                 slice[index].type = 'c';
             } else {
-                printf("invalid EXT-X-MEDIA tag  TYPE=%s",type);
-                exit(1);
+                /* not a rendition type this filter knows: the line is kept as it is */
+                printf("invalid EXT-X-MEDIA tag  TYPE=%.*s\n", (int) (slice[index].last - type), type);
+                slice[index].type = '\0';
             }
             const char *text = strstr(slice[index].first, "DEFAULT=");
             text = text < slice[index].last ? text : NULL;
@@ -753,7 +760,7 @@ static slice_t *master_playlist_slicer(const char *master_playlist, airplay_vide
             }
         }
         available_list = unpack_list(available,',',&n_list);
-        assert(n_list == n_items);
+        /* n_list exceeds n_items if a LANGUAGE value has a ',' in it; only n_list is used below */
         if (autoselect) {
             selected = match_language(lang_list, n_lang, available_list, n_list, NULL);
             if (!selected && type == 'a') {
