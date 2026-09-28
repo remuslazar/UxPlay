@@ -886,15 +886,14 @@ static char *prune_master_playlist(char *master_playlist, const slice_t *slice,
         /* In-place compaction can only shrink: the video path marks no
          * AUDIO/SUBTITLES slices, so no LANGUAGE attributes are added. */
         assert(!in_place || added == 0);
-        /* The added/removed size pass assumes each DEFAULT=/AUTOSELECT= token it
-         * removes is followed by a comma, but the write loop below only skips a
-         * following comma when one is actually present. A token that is the last
-         * attribute on its line (no trailing comma, e.g. "...,AUTOSELECT=YES\n")
-         * therefore made the write 1 byte longer than newlen counted -- a heap
-         * overflow. newlen is thus only a lower bound; allocate a guaranteed-safe
-         * upper bound instead: every kept AUDIO/SUBTITLES line appends at most
-         * ",DEFAULT=YES,AUTOSELECT=YES" plus its newline, and deletions only
-         * shrink, so strlen + n_slice*that length can never be exceeded. */
+        /* newlen counts one DEFAULT= and one AUTOSELECT= attribute per line,
+         * each removed with one ','. The write loop below removes just that, so
+         * newlen is exact for a well-formed playlist. The client's playlist can
+         * still differ (a repeated attribute, or "DEFAULT=" in a quoted value
+         * that the slicer takes for the attribute), so allocate an upper bound
+         * that holds for any input: every kept AUDIO/SUBTITLES line appends at
+         * most ",DEFAULT=YES,AUTOSELECT=YES" plus its newline, and deletions
+         * only shrink, so strlen + n_slice*that length is never exceeded. */
         size_t newlen = strlen(master_playlist) + added  - removed;
         size_t cap = strlen(master_playlist) + n_slice * (sizeof(",DEFAULT=YES,AUTOSELECT=YES") - 1);
         if (!in_place) {
@@ -907,31 +906,35 @@ static char *prune_master_playlist(char *master_playlist, const slice_t *slice,
             }
             if (slice[i].type == 'a' || slice[i].type == 's') {
                 const char *ptr = slice[i].first;
+                const char *line = new;
+                bool quoted = false;
                 while (ptr < slice[i].last) {
-                    if (!strncmp(ptr, str_default_yes, len_default_yes)) {
-                        ptr += len_default_yes;
+                    /* only a whole attribute (after the tag's ':' or a ','), not
+                     * text in a quoted value such as NAME="...DEFAULT=YES..." */
+                    size_t len = 0;
+                    if (!quoted && ptr > slice[i].first && (ptr[-1] == ':' || ptr[-1] == ',')) {
+                        if (!strncmp(ptr, str_default_yes, len_default_yes)) {
+                            len = len_default_yes;
+                        } else if (!strncmp(ptr, str_default_no, len_default_no)) {
+                            len = len_default_no;
+                        } else if (!strncmp(ptr, str_autoselect_yes, len_autoselect_yes)) {
+                            len = len_autoselect_yes;
+                        } else if (!strncmp(ptr, str_autoselect_no, len_autoselect_no)) {
+                            len = len_autoselect_no;
+                        }
+                    }
+                    if (len) {
+                        ptr += len;
                         if (*ptr == ',') {
                             ptr++;
+                        } else if (new > line && new[-1] == ',') {
+                            /* the last attribute: remove the ',' before it instead */
+                            new--;
                         }
                         continue;
-                    } else if (!strncmp(ptr, str_default_no, len_default_no)) {
-                        ptr += len_default_no;
-                        if (*ptr == ',') {
-                            ptr++;
-                        }
-                        continue;
-                    } else if (!strncmp(ptr, str_autoselect_yes, len_autoselect_yes)) {
-                        ptr += len_autoselect_yes;
-                        if (*ptr == ',') {
-                            ptr++;
-                        }
-                        continue;
-                    } else if (!strncmp(ptr, str_autoselect_no, len_autoselect_no)) {
-                        ptr += len_autoselect_no;
-                        if (*ptr == ',') {
-                            ptr++;
-                        }
-                        continue;
+                    }
+                    if (*ptr == '"') {
+                        quoted = !quoted;
                     }
                     *(new++) = *ptr;
                     ptr++;
@@ -959,9 +962,15 @@ static char *prune_master_playlist(char *master_playlist, const slice_t *slice,
                 new += len;
             }
         }
-        assert(new >= new_master_playlist + newlen && new <= new_master_playlist + cap);
         *new = '\0';
-        if (!in_place) free(master_playlist);
+        if (!in_place) {
+            if (new != new_master_playlist + newlen) {
+                /* a playlist that is not as counted: pass it on as the client sent it */
+                free(new_master_playlist);
+                return master_playlist;
+            }
+            free(master_playlist);
+        }
     }
     return new_master_playlist;
 }

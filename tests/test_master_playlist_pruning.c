@@ -48,6 +48,18 @@ int main(void) {
     expect_pruning("#EXTM3U\n" AUDIO_DE YES SUBS_DE YES AVC,
                    "#EXTM3U\n" AUDIO_DE YES SUBS_DE YES AVC,
                    "#EXTM3U\n" AUDIO_DE YES SUBS_DE YES AVC, 0);
+    /* DEFAULT=/AUTOSELECT= as the last attributes leave no empty attribute. */
+    expect_pruning("#EXTM3U\n" AUDIO_EN AUDIO_DE ",DEFAULT=NO,AUTOSELECT=YES\n" AVC,
+                   "#EXTM3U\n" AUDIO_DE YES AVC,
+                   "#EXTM3U\n" AUDIO_DE YES AVC, 0);
+    /* DEFAULT=YES in a quoted value is not the attribute. */
+    expect_pruning("#EXTM3U\n" AUDIO_EN AUDIO_DE ",NAME=\"xDEFAULT=YESx\",DEFAULT=YES\n" AVC,
+                   "#EXTM3U\n" AUDIO_DE ",NAME=\"xDEFAULT=YESx\"" YES AVC,
+                   "#EXTM3U\n" AUDIO_DE ",NAME=\"xDEFAULT=YESx\"" YES AVC, 0);
+    /* A playlist that repeats an attribute is passed on as it came. */
+    expect_pruning("#EXTM3U\n" AUDIO_EN AUDIO_DE ",DEFAULT=YES,DEFAULT=YES\n" AVC,
+                   "#EXTM3U\n" AUDIO_EN AUDIO_DE ",DEFAULT=YES,DEFAULT=YES\n" AVC,
+                   "#EXTM3U\n" AUDIO_EN AUDIO_DE ",DEFAULT=YES,DEFAULT=YES\n" AVC, 0);
     puts("Master playlist pruning tests passed");
     return 0;
 }
