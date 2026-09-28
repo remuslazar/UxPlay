@@ -185,7 +185,9 @@ status](https://repology.org/badge/vertical-allrepos/uxplay.svg)](https://repolo
     **Note: it is NOT recommended to run UxPlay as a root service.**
 
 -   On Raspberry Pi:  models using hardware h264 video decoding by the
-    Broadcom GPU (models 4B and earlier) may require the uxplay option -bt709.
+    Broadcom GPU (models 4B and earlier) may require the uxplay option -bt709
+    (UxPlay now applies it to screen mirroring by default, with "-srgb no":
+    see -bt709 below).
     If you use Ubuntu 22.10 or earlier, GStreamer must
     be [patched](https://github.com/FDH2/UxPlay/wiki/Gstreamer-Video4Linux2-plugin-patches)
     to use hardware video decoding by the Broadcom GPU (also recommended
@@ -1555,6 +1557,13 @@ to recognize Apple's use of an uncommon (but permitted) "full-range
 color" variant of the bt709 color standard for digital TV. This was no
 longer needed by GStreamer-1.20.4 and backports from it, but appears to 
 again be required in GStreamer-1.22 and later.
+If the Video4Linux2 h264 decoder `v4l2h264dec` is present (Raspberry Pi
+models 4B and earlier), h264 screen mirroring uses -bt709 and "-srgb no" by
+default, so that it is decoded in hardware: without -bt709, `v4l2h264dec`
+rejects the stream, and the software decoder that takes over cannot keep up
+there with the -srgb conversion. H.265, HLS and cover-art video are
+unchanged. Giving any of -bt709, -srgb, -vp, -vd, -vc, -v4l2 or -avdec
+turns this off, and the options given apply as before.
 
 **-srgb** A workaround for a failure to display full-range 8-bit color
 [0-255], and instead restrict to limited range [16-235] "legal BT709"
@@ -1564,7 +1573,8 @@ release: it only occurs in Linux and \*BSD.
 
 **-srbg no**. Disables the -srgb option, which is enabled by default in
 Linux and *BSD, but may be useless on Raspberry Pi, and may be unwanted,
-as it adds extra processing load.
+as it adds extra processing load. (See -bt709 for when it is left out of
+h264 screen mirroring by default.)
 
 **-as *audiosink*** chooses the GStreamer audiosink, instead of letting
 autoaudiosink pick it for you. Some audiosink choices are: pulsesink,

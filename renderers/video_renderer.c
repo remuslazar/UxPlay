@@ -89,6 +89,9 @@ static int type_264 = 0;
 static int type_265 = 0;
 static int type_hls = 0;
 static int type_jpeg = 0;
+/* parser and converter of the h264 mirroring pipeline, if not those given to video_renderer_init */
+static char *h264_parser = NULL;
+static char *h264_converter = NULL;
 
 typedef enum {
   //GST_PLAY_FLAG_VIDEO         = (1 << 0),
@@ -304,6 +307,25 @@ g_string_replace (GString     *string,
 }
 #endif
 
+/* GStreamer's v4l2 plugin only registers v4l2h264dec if a V4L2 stateful h264 decoder is present,
+ * as on Raspberry Pi models 4B and earlier (a Pi 5 has no h264 decoder) */
+bool video_renderer_v4l2_h264_decoder_found() {
+    GstElementFactory *factory = gst_element_factory_find("v4l2h264dec");
+    if (!factory) {
+        return false;
+    }
+    gst_object_unref(factory);
+    return true;
+}
+
+/* use this parser and converter in the h264 mirroring pipeline instead of those given to video_renderer_init */
+void video_renderer_set_h264_pipeline(const char *parser, const char *converter) {
+    g_free(h264_parser);
+    g_free(h264_converter);
+    h264_parser = g_strdup(parser);
+    h264_converter = g_strdup(converter);
+}
+
 void video_renderer_init(logger_t *render_logger, const char *server_name, videoflip_t videoflip[2], const char *parser, const char * rtp_pipeline,
                           const char *decoder, const char *converter, const char *videosink, const char *videosink_options, 
                           bool initial_fullscreen, bool video_sync, bool h265_support, bool coverart_support, guint playbin_version, const char *uri,
@@ -422,7 +444,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
                 g_string_append(launch, "jpegdec ");
             } else {
                 g_string_append(launch, "queue ! ");
-                g_string_append(launch, parser);
+                g_string_append(launch, (i == type_264 && h264_parser) ? h264_parser : parser);
                 g_string_append(launch, " ! ");
                 if (!rtp) {
                     g_string_append(launch, decoder);
@@ -434,7 +456,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
             if (!rtp || jpeg_pipeline) {
                 g_string_append(launch, " ! ");
                 append_videoflip(launch, &videoflip[0], &videoflip[1]);
-                g_string_append(launch, converter);
+                g_string_append(launch, (i == type_264 && h264_converter) ? h264_converter : converter);
                 g_string_append(launch, " ! ");
                 g_string_append(launch, "videoscale ! ");
                 if (jpeg_pipeline) {

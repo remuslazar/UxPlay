@@ -150,6 +150,12 @@ Cap every codec for a strict size limit: other services offer H.264 above 1080p.
 \fB\-v4l2\fR     Use Video4Linux2 for GPU hardware h264 video decoding.
 .TP
 \fB\-bt709\fR    Sometimes needed for Raspberry Pi models using Video4Linux2.
+.IP
+   Default (with "\-srgb no") for h264 mirroring if v4l2h264dec
+.IP
+   exists (R Pi 4B and earlier), unless \-bt709, \-srgb, \-vp, \-vd,
+.IP
+   \-vc, \-v4l2 or \-avdec is given.
 .TP
 \fB\-srgb\fR     Display "Full range" [0-255] color, not "Limited Range"[16-235]
 .IP
