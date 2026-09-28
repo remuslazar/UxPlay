@@ -339,6 +339,9 @@ static char * list_languages(const char *master_playlist, int n_slice, slice_t *
             continue;
         }
         lang = strstr(slice[i].first, "LANGUAGE=\"");
+        /* ignore a value whose closing '"' is not on its line */
+        const char *lang_end = lang ? strchr(lang + strlen("LANGUAGE=\""), '"') : NULL;
+        lang = lang_end && lang_end < slice[i].last ? lang : NULL;
         if (lang && lang < slice[i].last) {
             lang = strchr(lang, '"');
             lang++;
@@ -357,6 +360,9 @@ static char * list_languages(const char *master_playlist, int n_slice, slice_t *
             continue;
         }
         lang = strstr(slice[i].first, "LANGUAGE=\"");
+        /* ignore a value whose closing '"' is not on its line */
+        const char *lang_end = lang ? strchr(lang + strlen("LANGUAGE=\""), '"') : NULL;
+        lang = lang_end && lang_end < slice[i].last ? lang : NULL;
         char * autoselect_no = NULL;
         if (autoselect) {
             /* eliminate AUTOSELECT=NO entries when autoselect = true */
@@ -578,8 +584,9 @@ static slice_t *master_playlist_slicer(const char *master_playlist, airplay_vide
             } else if (!strncmp(type, "CLOSED-CAPTIONS", strlen("CLOSED-CAPTIONS"))) {
                 slice[index].type = 'c';
             } else {
-                printf("invalid EXT-X-MEDIA tag  TYPE=%s",type);
-                exit(1);
+                /* not a rendition type this filter knows: the line is kept as it is */
+                printf("invalid EXT-X-MEDIA tag  TYPE=%.*s\n", (int) (slice[index].last - type), type);
+                slice[index].type = '\0';
             }
             const char *text = strstr(slice[index].first, "DEFAULT=");
             text = text < slice[index].last ? text : NULL;
@@ -753,7 +760,7 @@ static slice_t *master_playlist_slicer(const char *master_playlist, airplay_vide
             }
         }
         available_list = unpack_list(available,',',&n_list);
-        assert(n_list == n_items);
+        /* n_list exceeds n_items if a LANGUAGE value has a ',' in it; only n_list is used below */
         if (autoselect) {
             selected = match_language(lang_list, n_lang, available_list, n_list, NULL);
             if (!selected && type == 'a') {
@@ -886,9 +893,18 @@ static char *prune_master_playlist(char *master_playlist, const slice_t *slice,
         /* In-place compaction can only shrink: the video path marks no
          * AUDIO/SUBTITLES slices, so no LANGUAGE attributes are added. */
         assert(!in_place || added == 0);
+        /* newlen counts one DEFAULT= and one AUTOSELECT= attribute per line,
+         * each removed with one ','. The write loop below removes just that, so
+         * newlen is exact for a well-formed playlist. The client's playlist can
+         * still differ (a repeated attribute, or "DEFAULT=" in a quoted value
+         * that the slicer takes for the attribute), so allocate an upper bound
+         * that holds for any input: every kept AUDIO/SUBTITLES line appends at
+         * most ",DEFAULT=YES,AUTOSELECT=YES" plus its newline, and deletions
+         * only shrink, so strlen + n_slice*that length is never exceeded. */
         size_t newlen = strlen(master_playlist) + added  - removed;
+        size_t cap = strlen(master_playlist) + n_slice * (sizeof(",DEFAULT=YES,AUTOSELECT=YES") - 1);
         if (!in_place) {
-            new_master_playlist = (char *) calloc(newlen + 1, sizeof(char));
+            new_master_playlist = (char *) calloc(cap + 1, sizeof(char));
         }
         char *new = new_master_playlist;
         for (size_t i = 0; i < n_slice; i++) {
@@ -897,31 +913,35 @@ static char *prune_master_playlist(char *master_playlist, const slice_t *slice,
             }
             if (slice[i].type == 'a' || slice[i].type == 's') {
                 const char *ptr = slice[i].first;
+                const char *line = new;
+                bool quoted = false;
                 while (ptr < slice[i].last) {
-                    if (!strncmp(ptr, str_default_yes, len_default_yes)) {
-                        ptr += len_default_yes;
+                    /* only a whole attribute (after the tag's ':' or a ','), not
+                     * text in a quoted value such as NAME="...DEFAULT=YES..." */
+                    size_t len = 0;
+                    if (!quoted && ptr > slice[i].first && (ptr[-1] == ':' || ptr[-1] == ',')) {
+                        if (!strncmp(ptr, str_default_yes, len_default_yes)) {
+                            len = len_default_yes;
+                        } else if (!strncmp(ptr, str_default_no, len_default_no)) {
+                            len = len_default_no;
+                        } else if (!strncmp(ptr, str_autoselect_yes, len_autoselect_yes)) {
+                            len = len_autoselect_yes;
+                        } else if (!strncmp(ptr, str_autoselect_no, len_autoselect_no)) {
+                            len = len_autoselect_no;
+                        }
+                    }
+                    if (len) {
+                        ptr += len;
                         if (*ptr == ',') {
                             ptr++;
+                        } else if (new > line && new[-1] == ',') {
+                            /* the last attribute: remove the ',' before it instead */
+                            new--;
                         }
                         continue;
-                    } else if (!strncmp(ptr, str_default_no, len_default_no)) {
-                        ptr += len_default_no;
-                        if (*ptr == ',') {
-                            ptr++;
-                        }
-                        continue;
-                    } else if (!strncmp(ptr, str_autoselect_yes, len_autoselect_yes)) {
-                        ptr += len_autoselect_yes;
-                        if (*ptr == ',') {
-                            ptr++;
-                        }
-                        continue;
-                    } else if (!strncmp(ptr, str_autoselect_no, len_autoselect_no)) {
-                        ptr += len_autoselect_no;
-                        if (*ptr == ',') {
-                            ptr++;
-                        }
-                        continue;
+                    }
+                    if (*ptr == '"') {
+                        quoted = !quoted;
                     }
                     *(new++) = *ptr;
                     ptr++;
@@ -949,9 +969,15 @@ static char *prune_master_playlist(char *master_playlist, const slice_t *slice,
                 new += len;
             }
         }
-        assert(new == new_master_playlist + newlen);
         *new = '\0';
-        if (!in_place) free(master_playlist);
+        if (!in_place) {
+            if (new != new_master_playlist + newlen) {
+                /* a playlist that is not as counted: pass it on as the client sent it */
+                free(new_master_playlist);
+                return master_playlist;
+            }
+            free(master_playlist);
+        }
     }
     return new_master_playlist;
 }
@@ -1439,6 +1465,10 @@ char *adjust_master_playlist (char *fcup_response_data, int fcup_response_datale
     char *first = fcup_response_data;
     char *new = new_master;
     char *last = strstr(first, uri_prefix);
+    if (!last) {
+        /* no uri to adjust: the loop below copies nothing */
+        memcpy(new, first, fcup_response_datalen);
+    }
     counter  = 0;
     while (last != NULL) {
         counter++;
