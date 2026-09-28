@@ -645,6 +645,11 @@ raop_rtp_mirror_thread(void *arg)
                     free(sps_pps);
                     sps_pps = NULL;
                 }
+                /* nothing is pending now: prepend_sps_pps is only set again once
+                 * this packet has been parsed in full, so none of the early
+                 * breaks below leaves the next video packet to prepend (and
+                 * assert on) the freed sps_pps. */
+                prepend_sps_pps = false;
                 /* the codec probe and the size fields below index into payload;
                  * a short payload must not be read past its end. */
                 if (payload_size < 8) {
