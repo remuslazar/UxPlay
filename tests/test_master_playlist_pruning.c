@@ -48,6 +48,30 @@ int main(void) {
     expect_pruning("#EXTM3U\n" AUDIO_DE YES SUBS_DE YES AVC,
                    "#EXTM3U\n" AUDIO_DE YES SUBS_DE YES AVC,
                    "#EXTM3U\n" AUDIO_DE YES SUBS_DE YES AVC, 0);
+    /* DEFAULT=/AUTOSELECT= as the last attributes leave no empty attribute. */
+    expect_pruning("#EXTM3U\n" AUDIO_EN AUDIO_DE ",DEFAULT=NO,AUTOSELECT=YES\n" AVC,
+                   "#EXTM3U\n" AUDIO_DE YES AVC,
+                   "#EXTM3U\n" AUDIO_DE YES AVC, 0);
+    /* DEFAULT=YES in a quoted value is not the attribute. */
+    expect_pruning("#EXTM3U\n" AUDIO_EN AUDIO_DE ",NAME=\"xDEFAULT=YESx\",DEFAULT=YES\n" AVC,
+                   "#EXTM3U\n" AUDIO_DE ",NAME=\"xDEFAULT=YESx\"" YES AVC,
+                   "#EXTM3U\n" AUDIO_DE ",NAME=\"xDEFAULT=YESx\"" YES AVC, 0);
+    /* A playlist that repeats an attribute is passed on as it came. */
+    expect_pruning("#EXTM3U\n" AUDIO_EN AUDIO_DE ",DEFAULT=YES,DEFAULT=YES\n" AVC,
+                   "#EXTM3U\n" AUDIO_EN AUDIO_DE ",DEFAULT=YES,DEFAULT=YES\n" AVC,
+                   "#EXTM3U\n" AUDIO_EN AUDIO_DE ",DEFAULT=YES,DEFAULT=YES\n" AVC, 0);
+    /* Malformed renditions do not stop the filter: an unknown TYPE is kept as
+     * it is, a LANGUAGE with a ',' in it matches no language, and one without
+     * its closing '"' on its line is no language. */
+    expect_pruning("#EXTM3U\n#EXT-X-MEDIA:TYPE=OTHER,GROUP-ID=\"o\"\n" AUDIO_EN AUDIO_DE "\n" AVC,
+                   "#EXTM3U\n#EXT-X-MEDIA:TYPE=OTHER,GROUP-ID=\"o\"\n" AUDIO_DE YES AVC,
+                   "#EXTM3U\n#EXT-X-MEDIA:TYPE=OTHER,GROUP-ID=\"o\"\n" AUDIO_DE YES AVC, 0);
+    expect_pruning("#EXTM3U\n" AUDIO_DE "\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",LANGUAGE=\"de,en\",URI=\"x.m3u8\"\n" AVC,
+                   "#EXTM3U\n" AUDIO_DE YES AVC,
+                   "#EXTM3U\n" AUDIO_DE YES AVC, 0);
+    expect_pruning("#EXTM3U\n" AVC "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",LANGUAGE=\"de\n",
+                   "#EXTM3U\n" AVC "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",LANGUAGE=\"de" YES,
+                   "#EXTM3U\n" AVC "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",LANGUAGE=\"de" YES, 0);
     puts("Master playlist pruning tests passed");
     return 0;
 }
