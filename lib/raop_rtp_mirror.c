@@ -168,6 +168,10 @@ raop_rtp_mirror_init_aes(raop_rtp_mirror_t *raop_rtp_mirror, uint64_t *streamCon
 }
 
 #define RAOP_PACKET_LEN 32768
+/* upper bound for a mirror packet's payload_size. A type-0x00 packet carries a
+ * whole encoded video frame (1080p/4K keyframes are routinely several hundred
+ * kB), so this is far above any real frame and only rules out absurd sizes. */
+#define MIRROR_MAX_PAYLOAD (16 * 1024 * 1024)
 /**
  * Mirror
  */
@@ -321,11 +325,11 @@ raop_rtp_mirror_thread(void *arg)
             int payload_size = byteutils_get_int(packet, 0);
             /* payload_size comes straight off the wire and then drives malloc()
              * and the recv loop below; a negative or absurd value crashed the
-             * receiver. Bound it to the same cap the audio path uses. */
-            if (payload_size < 0 || payload_size > RAOP_PACKET_LEN) {
+             * receiver. */
+            if (payload_size < 0 || payload_size > MIRROR_MAX_PAYLOAD) {
                 logger_log(raop_rtp_mirror->logger, LOGGER_ERR,
                            "raop_rtp_mirror: invalid payload size %d (max %d), dropping connection",
-                           payload_size, RAOP_PACKET_LEN);
+                           payload_size, MIRROR_MAX_PAYLOAD);
                 break;
             }
             char packet_description[13] = {0};
