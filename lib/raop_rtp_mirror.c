@@ -723,7 +723,7 @@ raop_rtp_mirror_thread(void *arg)
                     }
                     if (logger_debug) {
                         char *str = utils_data_to_string(sps, sps_size, 16);
-                        logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "h265 sps size %d\n%s",vps_size, str);
+                        logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "h265 sps size %d\n%s",sps_size, str);
                         free(str);
                     }
                     ptr += sps_size;
