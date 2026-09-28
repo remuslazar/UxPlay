@@ -30,6 +30,7 @@ struct http_request_s {
     bool is_reverse;  // if true, this is a reverse-response from client
     const char *method;
     char *url;
+    size_t urllen;
     char protocol[9];
 
     char **headers;
@@ -49,21 +50,32 @@ struct http_request_s {
 /* Caps applied while parsing, before the request is complete: an
  * unauthenticated client must not be able to make us realloc without bound.
  * The largest legitimate bodies are cover-art images and HLS playlists, well
- * under this; a single header line is always small. */
+ * under this; a single header line is always small. llhttp limits neither the
+ * URL length nor the header count: AirPlay/RTSP and HLS playlist URLs are far
+ * below 8 kB, and raop.c rejects more than 20 header fields, but only once the
+ * request is complete, which an attacker need never send. */
 #define MAX_REQUEST_BODY_LEN (8 * 1024 * 1024)
 #define MAX_HEADER_ACCUM_LEN (64 * 1024)
+#define MAX_URL_LEN (8 * 1024)
+#define MAX_HEADER_FIELDS 64
 
 static int
 on_url(llhttp_t *parser, const char *at, size_t length)
 {
     http_request_t *request = parser->data;
-    int urllen = request->url ? strlen(request->url) : 0;
 
-    request->url = realloc(request->url, urllen+length+1);
+    /* Cap the URL so a request line that never ends cannot grow it without
+     * bound; track its length rather than strlen() it on every fed chunk. */
+    if (length > (size_t) MAX_URL_LEN - request->urllen) {
+        return HPE_USER;
+    }
+
+    request->url = realloc(request->url, request->urllen + length + 1);
     assert(request->url);
 
-    request->url[urllen] = '\0';
-    strncat(request->url, at, length);
+    memcpy(request->url + request->urllen, at, length);
+    request->urllen += length;
+    request->url[request->urllen] = '\0';
 
     /* Bytes after the URL delimiter are only valid up to feed_end -- this
      * call's fed buffer, not whatever stale bytes follow it in memory. The
@@ -90,6 +102,10 @@ on_header_field(llhttp_t *parser, const char *at, size_t length)
 
     /* Allocate space for new field-value pair */
     if (request->headers_index == request->headers_size) {
+        /* Cap the field count so a client cannot add headers without bound. */
+        if (request->headers_size >= 2 * MAX_HEADER_FIELDS) {
+            return HPE_USER;
+        }
         request->headers_size += 2;
         request->headers = realloc(request->headers,
                                    request->headers_size*sizeof(char*));
