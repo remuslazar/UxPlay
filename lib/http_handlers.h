@@ -801,17 +801,17 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         uint_val = 0;
         int fcup_response_datalen = 0;
 
-        if  (logger_debug) {
-            plist_t req_params_fcup_response_statuscode_node = plist_dict_get_item(req_params_node,
-                                                                      "FCUP_Response_StatusCode");
-            if (req_params_fcup_response_statuscode_node) {
-                plist_get_uint_val(req_params_fcup_response_statuscode_node, &uint_val);
-                fcup_response_statuscode = (int) uint_val;
-                uint_val = 0;
-                logger_log(raop->logger, LOGGER_DEBUG, "FCUP_Response_StatusCode = %d",
-                           fcup_response_statuscode);
-            }
+        plist_t req_params_fcup_response_statuscode_node = plist_dict_get_item(req_params_node,
+                                                                  "FCUP_Response_StatusCode");
+        if (req_params_fcup_response_statuscode_node) {
+            plist_get_uint_val(req_params_fcup_response_statuscode_node, &uint_val);
+            fcup_response_statuscode = (int) uint_val;
+            uint_val = 0;
+            logger_log(raop->logger, LOGGER_DEBUG, "FCUP_Response_StatusCode = %d",
+                       fcup_response_statuscode);
+        }
 
+        if  (logger_debug) {
             plist_t req_params_fcup_response_requestid_node = plist_dict_get_item(req_params_node,
                                                                      "FCUP_Response_RequestID");
             if (req_params_fcup_response_requestid_node) {
@@ -834,7 +834,22 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
 	
         plist_t req_params_fcup_response_data_node = plist_dict_get_item(req_params_node, "FCUP_Response_Data");
         if (!PLIST_IS_DATA(req_params_fcup_response_data_node)){
-            goto post_action_error;
+            /* The client has no playlist for this URI although its master playlist lists it: the YouTube app
+               answered 404 for the audio rendition of its smallest variants, and the video never started.
+               Play it without that media playlist, if any variant is left */
+            int variants = -1;
+            if (!strstr(fcup_response_url, "/master.m3u8")) {
+                variants = remove_master_playlist_media(airplay_video, fcup_response_url);
+            }
+            if (variants <= 0) {
+                logger_log(raop->logger, LOGGER_ERR, "client sent no playlist for %s (status %d)",
+                           fcup_response_url, fcup_response_statuscode);
+                goto post_action_error;
+            }
+            logger_log(raop->logger, LOGGER_WARNING, "client sent no media playlist for %s (status %d): "
+                       "removed from the master playlist, %d variant(s) left",
+                       fcup_response_url, fcup_response_statuscode, variants);
+            goto next_media_playlist;
         }
 
         uint_val = 0;
@@ -914,6 +929,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             }
         }
 
+    next_media_playlist:
         plist_mem_free(fcup_response_url);
 
         int num_uri = get_num_media_uri(airplay_video);

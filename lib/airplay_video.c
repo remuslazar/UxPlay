@@ -1195,6 +1195,105 @@ int select_master_playlist_video(char *playlist, const hls_codec_t *codecs, size
     return removed;
 }
 
+/* Compare an attribute of the tag on this line with value (quotes included). */
+static bool hls_attribute_is(const char *line, const char *name, const char *value, size_t len) {
+    const char *attrs = strchr(line, ':'), *end = strchr(line, '\n'), *first, *last;
+    if (!end) end = line + strlen(line);
+    if (end > line && end[-1] == '\r') end--;
+    return attrs && attrs < end && hls_attribute(attrs + 1, end, name, &first, &last) == 1 &&
+        (size_t) (last - first) == len && !memcmp(first, value, len);
+}
+
+/* The client answered the request for a media playlist of the stored master playlist without one (the YouTube
+ * app answered 404 for an audio rendition it listed). Remove it from the master playlist that GStreamer plays:
+ * the EXT-X-MEDIA rendition, I-frame stream or variant with its URI, and every variant whose AUDIO or VIDEO
+ * group has no rendition left. Returns the number of variants left, or -1 for a URI not of this video. */
+int remove_master_playlist_media(airplay_video_t *airplay_video, const char *uri) {
+    char *playlist = airplay_video->master_playlist;
+    const char *prefix = airplay_video->uri_prefix;
+    if (!playlist || !prefix || strncmp(uri, prefix, strlen(prefix))) return -1;
+    /* the stored master playlist names it with the local prefix, quoted in a tag */
+    size_t len = strlen(airplay_video->local_uri_prefix) + strlen(uri + strlen(prefix));
+    char *local = (char *) malloc(len + 3);
+    if (!local) {
+        printf("Memory allocation failure (local)\n");
+        exit(1);
+    }
+    snprintf(local, len + 3, "\"%s%s\"", airplay_video->local_uri_prefix, uri + strlen(prefix));
+
+    size_t capacity = 1, n_slice = 0;
+    for (const char *p = playlist; *p; p++) if (*p == '\n') capacity++;
+    slice_t *slice = calloc(capacity, sizeof(*slice));
+    if (!slice) {
+        printf("Memory allocation failure (slice)\n");
+        exit(1);
+    }
+    const char *read = playlist;
+    while (*read) {
+        const char *end = strchr(read, '\n');
+        const char *next = end ? end + 1 : read + strlen(read);
+        slice_t *entry = &slice[n_slice++];
+        entry->first = read;
+        if (!strncmp(read, "#EXT-X-MEDIA:", 13)) {
+            entry->type = 'M';
+            entry->delete = hls_attribute_is(read, "URI", local, len + 2);
+        } else if (!strncmp(read, "#EXT-X-I-FRAME-STREAM-INF:", 26)) {
+            entry->type = 'I';
+            entry->delete = hls_attribute_is(read, "URI", local, len + 2);
+        } else if (!strncmp(read, "#EXT-X-STREAM-INF:", 18)) {
+            /* the variant's slice ends with its URI line, as in parse_master_playlist */
+            const char *line = next;
+            while (*line == '\r' || *line == '\n' || (*line == '#' && strncmp(line, "#EXT", 4))) {
+                end = strchr(line, '\n');
+                line = end ? end + 1 : line + strlen(line);
+            }
+            entry->type = 'V';
+            if (*line && *line != '#') {
+                end = strchr(line, '\n');
+                next = end ? end + 1 : line + strlen(line);
+                if (!end) end = next;
+                if (end > line && end[-1] == '\r') end--;
+                entry->delete = (size_t) (end - line) == len && !memcmp(line, local + 1, len);
+            }
+        }
+        entry->last = next - 1;
+        read = next;
+    }
+
+    const char *groups[] = { "AUDIO", "VIDEO" };
+    for (size_t i = 0; i < n_slice; i++) {
+        for (size_t g = 0; g < 2 && slice[i].type == 'V' && !slice[i].delete; g++) {
+            const char *attrs = strchr(slice[i].first, ':') + 1, *end = strchr(slice[i].first, '\n');
+            const char *group, *last;
+            bool lost = false, kept = false;
+            if (!end) end = slice[i].first + strlen(slice[i].first);
+            if (end[-1] == '\r') end--;
+            if (hls_attribute(attrs, end, groups[g], &group, &last) != 1) continue;
+            for (size_t j = 0; j < n_slice; j++) {
+                if (slice[j].type == 'M' && hls_attribute_is(slice[j].first, "TYPE", groups[g], strlen(groups[g])) &&
+                    hls_attribute_is(slice[j].first, "GROUP-ID", group, last - group)) {
+                    if (slice[j].delete) lost = true; else kept = true;
+                }
+            }
+            slice[i].delete = lost && !kept;
+        }
+    }
+
+    char *write = playlist;
+    int variants = 0;
+    for (size_t i = 0; i < n_slice; i++) {
+        if (slice[i].delete) continue;
+        size_t size = slice[i].last + 1 - slice[i].first;
+        memmove(write, slice[i].first, size);
+        write += size;
+        if (slice[i].type == 'V') variants++;
+    }
+    *write = '\0';
+    free(slice);
+    free(local);
+    return variants;
+}
+
 char *get_master_playlist(airplay_video_t *airplay_video) {
     return  airplay_video->master_playlist;
 }

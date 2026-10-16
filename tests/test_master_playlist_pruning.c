@@ -31,6 +31,45 @@ static void expect_pruning(const char *input, const char *language_result,
     free(codecs);
 }
 
+/* The YouTube app lists an audio rendition (group 233, for its smallest
+ * variants) and answers 404 when it is requested: the video plays without it. */
+#define LOCAL "http://localhost:7000/itag/"
+#define AUDIO_233 "#EXT-X-MEDIA:URI=\"" LOCAL "233/mediadata.m3u8\",TYPE=AUDIO,GROUP-ID=\"233\",DEFAULT=YES,AUTOSELECT=YES,NAME=\"Default\"\n"
+#define AUDIO_234 "#EXT-X-MEDIA:URI=\"" LOCAL "234/mediadata.m3u8\",TYPE=AUDIO,GROUP-ID=\"234\",DEFAULT=YES,AUTOSELECT=YES,NAME=\"Default\"\n"
+#define V229_233 "#EXT-X-STREAM-INF:BANDWIDTH=385253,CODECS=\"avc1.4D4015,mp4a.40.5\",RESOLUTION=426x240,AUDIO=\"233\"\n" LOCAL "229/mediadata.m3u8\n"
+#define V229_234 "#EXT-X-STREAM-INF:BANDWIDTH=469991,CODECS=\"avc1.4D4015,mp4a.40.2\",RESOLUTION=426x240,AUDIO=\"234\"\n" LOCAL "229/mediadata.m3u8\n"
+#define V269_233 "#EXT-X-STREAM-INF:BANDWIDTH=206254,CODECS=\"avc1.4D400C,mp4a.40.5\",RESOLUTION=256x144,AUDIO=\"233\"\n" LOCAL "269/mediadata.m3u8\n"
+#define V270_234 "#EXT-X-STREAM-INF:BANDWIDTH=4759759,CODECS=\"avc1.640028,mp4a.40.2\",RESOLUTION=1920x1080,AUDIO=\"234\"\n" LOCAL "270/mediadata.m3u8\n"
+
+static void expect_removal(const char *input, const char *uri, const char *result, int variants) {
+    int port = 0;
+    airplay_video_t *video = airplay_video_init((raop_t *) &port, 7000, "en", "en", "en");
+    CHECK(video != NULL);
+    set_uri_prefix(video, "mlhls://localhost", strlen("mlhls://localhost"));
+    char *playlist = malloc(strlen(input) + 1);
+    CHECK(playlist != NULL);
+    strcpy(playlist, input);
+    store_master_playlist(video, playlist);
+    CHECK(remove_master_playlist_media(video, uri) == variants);
+    CHECK(!strcmp(get_master_playlist(video), result));
+    airplay_video_destroy(video);
+}
+
+static void test_missing_media(void) {
+    /* The rendition goes, and with it the variants of its group. */
+    expect_removal("#EXTM3U\n#EXT-X-INDEPENDENT-SEGMENTS\n" AUDIO_233 AUDIO_234 V229_233 V229_234 V269_233 V270_234,
+                   "mlhls://localhost/itag/233/mediadata.m3u8",
+                   "#EXTM3U\n#EXT-X-INDEPENDENT-SEGMENTS\n" AUDIO_234 V229_234 V270_234, 2);
+    /* A variant's own playlist; the other variant with that URI goes too. */
+    expect_removal("#EXTM3U\n" AUDIO_233 AUDIO_234 V229_233 V229_234 V270_234,
+                   "mlhls://localhost/itag/229/mediadata.m3u8",
+                   "#EXTM3U\n" AUDIO_233 AUDIO_234 V270_234, 1);
+    /* Nothing left to play; a URI of another prefix is not this video's. */
+    expect_removal("#EXTM3U\n" AUDIO_233 V269_233, "mlhls://localhost/itag/233/mediadata.m3u8", "#EXTM3U\n", 0);
+    expect_removal("#EXTM3U\n" AUDIO_233 V269_233, "https://example.com/itag/233/mediadata.m3u8",
+                   "#EXTM3U\n" AUDIO_233 V269_233, -1);
+}
+
 int main(void) {
     /* Both callers use the same pruning code: LANGUAGE grows attributes and
      * deletes a rendition; video selection then compacts complete variants. */
@@ -48,6 +87,7 @@ int main(void) {
     expect_pruning("#EXTM3U\n" AUDIO_DE YES SUBS_DE YES AVC,
                    "#EXTM3U\n" AUDIO_DE YES SUBS_DE YES AVC,
                    "#EXTM3U\n" AUDIO_DE YES SUBS_DE YES AVC, 0);
+    test_missing_media();
     puts("Master playlist pruning tests passed");
     return 0;
 }
