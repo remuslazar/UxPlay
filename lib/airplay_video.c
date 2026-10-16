@@ -44,7 +44,6 @@ struct media_item_s {
     playlist_type_t playlist_type;
     int hls_version;
     int media_sequence;
-    unsigned int audio_request_attempt;
 };
 
 struct airplay_video_s {
@@ -1329,46 +1328,6 @@ char *get_master_playlist(airplay_video_t *airplay_video) {
 
 int get_num_media_uri(airplay_video_t *airplay_video) {
     return airplay_video->num_uri;
-}
-
-/* Test candidate: alternate representations of an untagged YouTube audio
- * playlist. Only a 404 for the outstanding request may advance this list.
- * Keep the original URI as the player's cache key when a retry succeeds. */
-static char *default_audio_request(int itag, unsigned int attempt) {
-    const char *forms[] = {
-        "mlhls://localhost/itag/%d/mediadata.m3u8",
-        "mlhls://localhost/itag/%d/media.m3u8",
-        "mlhls://localhost/itag/%d/xtags/ChEKBWFjb250EghvcmlnaW5hbAoLCgRsYW5nEgN1bmQ/mediadata.m3u8",
-        "mlhls://localhost/itag/%d/xtags//mediadata.m3u8",
-        "mlhls://localhost/itag/%d/mediadata.m3u8",
-        /* Finish on the advertised URI so existing missing-rendition handling
-         * can remove it if the client still cannot supply any representation. */
-        "mlhls://localhost/itag/%d/mediadata.m3u8"
-    };
-    if (attempt >= sizeof(forms) / sizeof(forms[0])) return NULL;
-    /* The captured successful playlists map HLS audio 233/234 to AAC 139/140. */
-    if (attempt == 4) itag -= 94;
-    size_t size = strlen(forms[attempt]) + 16;
-    char *uri = malloc(size);
-    if (uri) snprintf(uri, size, forms[attempt], itag);
-    return uri;
-}
-
-char *next_default_audio_request(airplay_video_t *video, const char *failed_uri) {
-    int num = video->next_uri - 1;
-    if (!failed_uri || num < 0 || num >= video->num_uri) return NULL;
-    media_item_t *item = &video->media_data_store[num];
-    int itag;
-    if (!strcmp(item->uri, "mlhls://localhost/itag/233/mediadata.m3u8")) itag = 233;
-    else if (!strcmp(item->uri, "mlhls://localhost/itag/234/mediadata.m3u8")) itag = 234;
-    else return NULL;
-    char *expected = default_audio_request(itag, item->audio_request_attempt);
-    bool matches = expected && !strcmp(expected, failed_uri);
-    free(expected);
-    if (!matches) return NULL;
-    char *next = default_audio_request(itag, item->audio_request_attempt + 1);
-    if (next) item->audio_request_attempt++;
-    return next;
 }
 
 void destroy_media_data_store(airplay_video_t *airplay_video) {

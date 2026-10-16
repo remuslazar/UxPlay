@@ -840,17 +840,6 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
 	
         plist_t req_params_fcup_response_data_node = plist_dict_get_item(req_params_node, "FCUP_Response_Data");
         if (!PLIST_IS_DATA(req_params_fcup_response_data_node)){
-            char *retry = fcup_response_statuscode == 404 ?
-                next_default_audio_request(airplay_video, fcup_response_url) : NULL;
-            if (retry) {
-                logger_log(raop->logger, LOGGER_INFO, "HLS default audio probe: %s", retry);
-                fcup_request((void *) conn, retry, apple_session_id,
-                             get_next_FCUP_RequestID(airplay_video));
-                free(retry);
-                plist_mem_free(fcup_response_url);
-                fcup_response_url = NULL;
-                goto action_success;
-            }
             /* The client has no playlist for this URI although its master playlist lists it: the YouTube app
                answered 404 for the audio rendition of its smallest variants, and the video never started.
                Play it without that media playlist, if any variant is left */
@@ -942,11 +931,6 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             int count = analyze_media_playlist(playlist, &duration, &endlist);
             int uri_num = get_next_media_uri_id(airplay_video);
             --uri_num;    // (next num is current num + 1)
-            const char *original = get_media_uri_by_num(airplay_video, uri_num);
-            if (original && strcmp(original, fcup_response_url)) {
-                logger_log(raop->logger, LOGGER_INFO, "HLS default audio probe returned playlist: %s (%d chunks)",
-                           fcup_response_url, count);
-            }
             int ret = store_media_playlist(airplay_video, playlist, &count, &duration, &endlist, uri_num);
             if (ret == 1) {
                 logger_log(raop->logger, LOGGER_DEBUG,"media_playlist is a duplicate: do not store");
@@ -982,7 +966,6 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     } else {
         logger_log(raop->logger, LOGGER_INFO, "unknown action type (unhandled)"); 
     }
- action_success:;
     /* Remote actions return a plist status, just like setProperty. An empty
        success response does not acknowledge completion of the queue operation. */
     plist_t status = plist_new_dict();

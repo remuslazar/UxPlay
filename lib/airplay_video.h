@@ -71,8 +71,6 @@ void set_next_media_uri_id(airplay_video_t *airplay_video, int id);
 int get_next_media_uri_id(airplay_video_t *airplay_video);
 int get_num_media_uri(airplay_video_t *airplay_video);
 char *get_media_uri_by_num(airplay_video_t *airplay_video, int num);
-/* Bounded diagnostic fallback for a missing default YouTube audio playlist; caller frees. */
-char *next_default_audio_request(airplay_video_t *airplay_video, const char *failed_uri);
 
 int analyze_media_playlist(char *playlist, float *duration, bool *endlist);
 int create_media_uri_table(const char *url_prefix, const char *master_playlist_data,
