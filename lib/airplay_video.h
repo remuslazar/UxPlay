@@ -76,6 +76,7 @@ int analyze_media_playlist(char *playlist, float *duration, bool *endlist);
 int create_media_uri_table(const char *url_prefix, const char *master_playlist_data,
                            int datalen, char ***media_uri_table, int *num_uri);
 void store_master_playlist(airplay_video_t *airplay_video, char *master_playlist);
+int remove_master_playlist_media(airplay_video_t *airplay_video, const char *uri);
 char *select_master_playlist_language(airplay_video_t *airplay_video, char *master_playlist);
 int store_media_playlist(airplay_video_t *airplay_video, char *media_playlist, int *count, float *duration, bool*endlist, int num);
 char *get_master_playlist(airplay_video_t *airplay_video);
