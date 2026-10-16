@@ -1388,6 +1388,7 @@ int create_media_uri_table(const char *url_prefix, const char *master_playlist_d
     }
     ptr = strstr(master_playlist_data, url_prefix);
     count = 0;
+    int num_video = 0;
     while (ptr != NULL) {
         const char *end = strstr(ptr, "m3u8");
         char *uri;
@@ -1402,7 +1403,16 @@ int create_media_uri_table(const char *url_prefix, const char *master_playlist_d
             exit(1);
         }
 	    memcpy(uri , ptr, len);
-        table[count] = uri;
+        /* Fetch the variant playlists before the quoted rendition URIs. This
+         * lets the client prepare the video before its default audio is asked
+         * for; every request still uses the URI it advertised, unchanged. */
+        if (ptr == master_playlist_data || ptr[-1] != '"') {
+            memmove(table + num_video + 1, table + num_video,
+                    (count - num_video) * sizeof(*table));
+            table[num_video++] = uri;
+        } else {
+            table[count] = uri;
+        }
         uri =  NULL;	
 	    count ++;
 	    ptr = strstr(end, url_prefix);
