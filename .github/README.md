@@ -18,6 +18,7 @@ that are not about the changes below belong
 | Plays at the volume announced to the client, and keeps it across videos | fix | [FDH2/UxPlay#577](https://github.com/FDH2/UxPlay/pull/577) | merged, removed again on 2026-09-27 |
 | HLS seeks land where asked, also in a video with subtitles | fix | [#1](https://github.com/remuslazar/UxPlay/pull/1) | not upstream |
 | A paused HLS video stays paused when it is scrubbed | fix | [#2](https://github.com/remuslazar/UxPlay/pull/2) | not upstream |
+| HLS video playlists are requested before audio renditions, preserving the client's URLs | compatibility | [#22](https://github.com/remuslazar/UxPlay/pull/22) | not upstream |
 | The HLS language filter no longer leaks memory per playlist | fix | [#7](https://github.com/remuslazar/UxPlay/pull/7) | fixed upstream in its own way |
 | Screen mirroring no longer leaks memory (about 12 MB per hour of mirroring) | fix | [#12](https://github.com/remuslazar/UxPlay/pull/12) | fixed upstream (FDH2/UxPlay#585), taken over unchanged |
 | Plays the audio track picked in the YouTube app, also when it is changed during the video | feature | [#6](https://github.com/remuslazar/UxPlay/pull/6) | merged in parts, removed again on 2026-09-27 |
