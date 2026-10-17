@@ -14,8 +14,8 @@ that are not about the changes below belong
 
 | Change | Type | Details | Upstream |
 | --- | --- | --- | --- |
-| Seeking and resuming past 35:47 in an HLS video land where asked | fix | [FDH2/UxPlay#576](https://github.com/FDH2/UxPlay/pull/576) | merged, removed again on 2026-09-27 |
-| Plays at the volume announced to the client, and keeps it across videos | fix | [FDH2/UxPlay#577](https://github.com/FDH2/UxPlay/pull/577) | merged, removed again on 2026-09-27 |
+| Seeking and resuming past 35:47 in an HLS video land where asked | fix | [FDH2/UxPlay#576](https://github.com/FDH2/UxPlay/pull/576) | merged, removed again on 2026-09-27, then fixed upstream in its own way |
+| Plays at the volume announced to the client, and keeps it across videos | fix | [FDH2/UxPlay#577](https://github.com/FDH2/UxPlay/pull/577) | merged, removed again on 2026-09-27, then fixed upstream in its own way |
 | HLS seeks land where asked, also in a video with subtitles | fix | [#1](https://github.com/remuslazar/UxPlay/pull/1) | not upstream |
 | A paused HLS video stays paused when it is scrubbed | fix | [#2](https://github.com/remuslazar/UxPlay/pull/2) | not upstream |
 | The HLS language filter no longer leaks memory per playlist | fix | [#7](https://github.com/remuslazar/UxPlay/pull/7) | fixed upstream in its own way |

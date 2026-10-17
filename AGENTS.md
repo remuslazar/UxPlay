@@ -15,6 +15,12 @@ harness lives beside it: Claude Code's `CLAUDE.md` imports this file.
   displays, user names, secrets, or links to private repositories.
 - **English everywhere** — code, comments, commit messages, pull requests.
 - **Commit messages say what changes for a user or on a display.**
+- **Only what the displays need.** A change goes into the fork when it fixes
+  something a display met or adds what the displays need, and as code only
+  when an existing option cannot do it. The displays serve the devices of one
+  household: hardening against hostile clients, and reworks of code shared
+  with upstream, stay out, since every changed line makes the next upstream
+  merge harder. Bugs of that kind are reported upstream instead.
 - **Minimal, surgical diffs** in upstream's code style: a bounds or NULL check
   rather than a restructure; fewer changed lines is a goal in itself. Propose
   a larger rework separately instead of bundling it.
@@ -63,7 +69,9 @@ harness lives beside it: Claude Code's `CLAUDE.md` imports this file.
   patch to apply by hand — again only with the user's approval.
 - **Security bugs in code shared with upstream**: ask the user how to disclose
   them before anything public (commit, pull request, issue) describes them.
-  Upstream has no private reporting channel.
+  Upstream takes private vulnerability reports (GitHub's *Report a
+  vulnerability*, since 2026-09-28); a report, too, only with the user's
+  approval of the exact text.
 - **Upstream rewrites its `master`** and re-creates commits: check whether
   something is upstream by content (`git cherry`, `grep`), never by SHA.
 - **Take upstream fixes one by one**: cherry-pick onto a `fix/…` branch and
