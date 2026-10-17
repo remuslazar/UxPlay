@@ -92,7 +92,9 @@ docker run --rm -v "$PWD":/src:ro uxplay-select-test-deps sh -c '
 - A display run goes through the ha-display repository and needs the user. To
   measure memory there, sample VmRSS, RssAnon and VmSwap of the `uxplay`
   process every 20 s during one session (zram swap can hide a leak from RSS);
-  the first ~5 min are warm-up, and UxPlay restarts after every session.
+  the first ~5 min are warm-up. One UxPlay process runs from one session to
+  the next, so a leak adds up across sessions: note the process's PID and its
+  memory before the first session a measurement covers.
 
 ## Intended behaviour
 

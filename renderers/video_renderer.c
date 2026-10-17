@@ -1275,6 +1275,11 @@ bool video_renderer_eos_watch() {
     return false; 
 }
 
+/* whether the renderer is the HLS player (playbin), not the mirror video pipeline */
+bool video_renderer_is_hls() {
+    return hls_video;
+}
+
 void video_renderer_hls_set_volume(double volume) {
     volume = (volume > 10.0) ? 10.0 : volume;
     volume = (volume < 0.0) ? 0.0 : volume;
